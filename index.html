@@ -3581,7 +3581,7 @@ function viewProducao(){
     renderEdicao();
   });
 
-  phone.querySelector('#btn-registar').onclick = ()=>{
+  phone.querySelector('#btn-registar').onclick = async ()=>{
     const num = inputNum.value.trim();
     warn.style.display = 'none';
     if(!num){ warn.textContent = 'Indica o número do bloco.'; warn.style.display='block'; return; }
@@ -3589,6 +3589,26 @@ function viewProducao(){
     if(!processoSel){ warn.textContent = 'Escolhe o processo (ou marca "Sem processo" se for excepção).'; warn.style.display = 'block'; return; }
     const m = lerMedidas();
     if(!m){ warn.textContent = 'Preenche as medidas (Comp × Alt × Larg) para o peso ser calculado e gravado.'; warn.style.display = 'block'; return; }
+    /* --- Ligado ao Supabase: grava no servidor (registar_bloco) e só confirma se o servidor aceitar --- */
+    if(window.sb && window.BF_USER && ['admin','producao'].includes(window.BF_USER.papel)){
+      const btnR = phone.querySelector('#btn-registar'); btnR.disabled = true;
+      try{
+        const {data,error} = await window.sb.rpc('registar_bloco', { p:{ numero:num, processo:processoSel.codigo, cliente:processoSel.cliente||null,
+          comp:m.compM, alt:m.altM, larg:m.largM, origem:pedreiraSel(), tipo_carga:tipoCargaSel } });
+        if(error) throw error;
+        if(data && data.erro){ warn.textContent = data.erro; warn.style.display='block'; btnR.disabled=false; return; }
+      }catch(e){
+        warn.textContent = 'Não gravou no servidor: '+(e.message||e); warn.style.display='block'; btnR.disabled=false; return;
+      }
+      btnR.disabled = false;
+      showToast(`Bloco ${num} gravado no servidor (${formatarTon(m.pesoKg)}${processoSel.codigo?(' · '+processoSel.codigo):' · sem processo'}).`, 'ok');
+      inputNum.value=''; inputComp.value=''; inputAlt.value=''; inputLarg.value='';
+      tipoCargaSel = 'granel'; renderTipoCarga(); actualizarPreview();
+      processoSel = null; criandoProcesso = false; renderProcessoArea();
+      if(window.bfSincronizar) await window.bfSincronizar(false);
+      inputNum.focus(); renderRecent();
+      return;
+    }
     const novo = {
       numero: num, processo: processoSel.codigo,
       origem: pedreiraSel(), local: pedreiraSel(), estado: 'no_mingue',
