@@ -13,6 +13,9 @@
 <meta name="designer" content="Eliazardo Tchissanda João Calui" />
 <meta name="created" content="2026" />
 <title>BlockFlow · Controlo de Blocos — HM Granitos</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2F5470">
+<link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAEyElEQVR4nMVXXYhVVRT+1tr7nHPv3Pm5Y8mk4fTz0lsEFaH5EFj5UJYvQ0FkKEQU+CIGFcIkGD1oEflS9CdkUUzQqIympEbITJKVUhYqpV5tHGecmTt3fu7f3nv1cD3Xe8d7ZzzOQB9sOOzNOevba33r22cTAKCzk7F5s7vroVVtTusNBH5KxN4DgDA/ECJ1SuB2szHvnj2653IYk8KHJctWP87MHzGpdnEWIm6eYpdAxCBWcGJTzrkXL/R2H0BnJxMAtC99eoXy/O/FWoizFkRMRDPuXkSichCIOGKlSCnYYuHRVN+ug3Tb8o6FgS0eJ6UWiTUORIqZUCwa1AtBADxPw7nIJAARS0qzWHspr7z7dGCLG1l7i50pWBApATCVzWPhgiSYCYJrQgifnRMMjaQRBH50kRApscay9hcHprhRA+gQZwUEYmZMZbPYtH4dnlu9EiCAiaooOBFAgC+692PL9k/REI/DuYh6IZA4KwA66I5lq6VEjFA0Bq3NTfh5z2eIBf6M38jlC3hw1VqMZsbhaX0zmgAAMFBdamZCLl+AiMA5BxGpGuFcLl+A1grMDK0UlOKb6VnRqNHrRISwCWo1Qzg3lpnAaDoDEEErRnNjAlorWHvDJSEdlXIYvDERx3efv4crI2P449Tf+OdCP77s3o/RsXEkm5tuWBcclUAI5wS9x37HxUuDePiBe/H6Ky/gp+5P8Oyqx5CZmATzjX06cgZEBESEqWwOm975ACPpccSDAMmWJjzz5Aq8/+YGTGVz6DnUi+bGBthZMlGT5nTh1RoA0HbrAiy8JYlkSynlb2/fgW/2HcZrLz8PY+sb2YwZcE4QC/wqIVYinAsCH4VCEc46OHLQSqE52Yzh0TRYcfQSiAh8z8PQyCg+/mr3rEa09cOdGBxOI9EQL7emcxZ3t9+Oi5eGUDSm5gau21BoRGUiAPL5wqxWPDg8ingsAFAimS8atLY04sS+nbLu1S3oOdyLZFNjqAGBCEmNlr+uBASgIR4gnRmf8TAKd16aIKQz4/LWxpfw259n6NsDP6KlqRHZfAEgwDkhTykw1yjp9AyUF2ZJXyhExYyxiUnZ+sZ6WtvxBH7o+6XnfP/l8UQ8pqy18D3fnjmXat3RtXf5RDabYKLKpNZvwwjeLldbcxjAmUeW3n8C1almACf/HRhq/rrn0NKGwBcnQpWLc4KIiOd51HfsxF8A9k5mcw2FQiFmjAmMMcFkNhsAiNd7P7IR1UM8HtMAAqVYfN8vu48p/bXUdaM5ZyCElGoW+UyeNwKVdY2yPm8liPmeAQBrLRljysGstQRAwvVaBKraIioEIMWM4ydPtwPQiXg8VxVAawEQ+/Xk6XbFjGlmJHV9ICqsc1iyqO1yoiGWc86VS6uY7XA60zJ4ZbRVK75OJBqCs8R8p4gVgG5aE5oZ5/sH2sRh2h5Lv3meZlyzFnFEisS5cwygi1gRJLqCKyEAfK0l8LUEXsXwtXiaq31NIMSKAHRxXnnbnCn2k9IMETsnEiJUe1Tk5OrFxJlif15523jgSNeQQNYQMxErdZXEvOhiOj+IWGKliJkEsmbgSNcQo7OTU327DhpTXCmEFGtfEdU4tuYIIibWvhJCypjiylTfroPly+n/eT3/D0c2klg1nkGOAAAAAElFTkSuQmCC">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -3887,7 +3890,7 @@ function viewConferente(){
   });
   const btnE = phone.querySelector('#btn-entrada');
   const btnS = phone.querySelector('#btn-saida');
-  btnE.onclick = ()=>{ confMode='entrada'; resetForm(); renderAll(); };
+  btnE.onclick = ()=>{ confMode='entrada'; resetForm(); renderAll(); if(window.bfSincronizar && navigator.onLine!==false && window.BF_USER) window.bfSincronizar(false); };
   btnS.onclick = ()=>{ confMode='saida'; resetForm(); renderAll(); };
   function renderAll(){
     btnE.className = confMode==='entrada' ? 'on-entrada' : '';
@@ -4380,6 +4383,7 @@ function viewConferente(){
       const semProcesso = resolvidos.filter(b=> b && !b.processo);
       if(semProcesso.length>0){ const nums = semProcesso.map(b=>b.numero).join(', '); showToast(`Bloco(s) ${nums} sem processo — corrige antes de mover.`, 'err'); return; }
       /* --- Ligado ao Supabase: o servidor valida e grava (quem = login, quando = hora do servidor) --- */
+      let filaOffline = false;
       if(window.sb && window.BF_USER && ['admin','conferente'].includes(window.BF_USER.papel)){
         const btnC = area.querySelector('#btn-confirmar'); const txtC = btnC.textContent;
         btnC.disabled = true; btnC.textContent = 'A gravar…';
@@ -4406,11 +4410,20 @@ function viewConferente(){
           poroes: embarqueComNavio ? poraoPorNumero : null,
           blocos: blocosPreenchidos.slice()
         };
-        let res;
+        let res = null, semRede = false;
         try{
           const {data,error} = await window.sb.rpc('registar_guia', { p: payload });
           if(error) throw error; res = data || {};
-        }catch(e){ showToast('Não gravou no servidor: '+(e.message||e)+' — tenta de novo.', 'err'); volta(); return; }
+        }catch(e){
+          if(window.bfFila && window.bfFila.ehRede(e)) semRede = true;
+          else { showToast('Não gravou no servidor: '+(e.message||e)+' — tenta de novo.', 'err'); volta(); return; }
+        }
+        if(semRede){
+          /* sem rede: guarda na fila (com a hora real do momento) e aplica já neste aparelho; envia sozinha quando houver rede */
+          payload.ocorrido_em = new Date().toISOString();
+          window.bfFila.adicionar(payload, `${payload.tipo} · ${blocosPreenchidos.length} bloco(s) · ${payload.de}→${payload.para}` + (guiaNumFinal?` · guia ${guiaNumFinal}`:''));
+          filaOffline = true;
+        } else {
         if(res.erro){
           const r0 = (res.recusados||[])[0];
           showToast(res.erro + (r0 ? ` · bloco ${r0.bloco}: ${r0.motivo}` : ''), 'err'); volta(); return;
@@ -4426,6 +4439,7 @@ function viewConferente(){
         resetForm();
         if(window.bfSincronizar) await window.bfSincronizar(false);
         renderAll(); return;
+        }
       }
       resolvidos.forEach(b=>{
         if(embarque){
@@ -4489,6 +4503,7 @@ function viewConferente(){
                    : `Guia ${guiaNumFinal} emitida (${modalTxt}) — ${blocosPreenchidos.length} bloco(s) · ${formatarTonTotal(pesoTotal)}`),
         'ok');
       resetForm(); renderAll();
+      if(filaOffline) showToast(`Sem rede: guardado neste aparelho (${window.bfFila.pendentes()} por enviar). Envia sozinho quando houver rede.`, 'ok');
     };
   }
   let verTudo = false;
@@ -6072,6 +6087,7 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
       chip.appendChild(document.createTextNode(' ')); chip.appendChild(syn); bar.prepend(chip);
     }
     ov.remove(); resetFormSeguro(); render();
+    setTimeout(()=>{ if(window.bfSincronizar && !offline && navigator.onLine!==false) window.bfSincronizar(false); }, 400);
   }
   function resetFormSeguro(){ try{ if(typeof resetForm==='function') resetForm(); }catch(e){} }
   function semAcesso(t){ $('login-form').style.display='none'; sub(t); $('login-sair').style.display='block';
@@ -6143,6 +6159,10 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
   }
   window.bfSincronizar = async function(manual){
     if(!window.sb || !window.BF_USER) return false;
+    if(window.bfFila && window.bfFila.pendentes()>0){
+      await window.bfFila.flush(false);
+      if(window.bfFila.pendentes()>0){ aviso('⏳ '+window.bfFila.pendentes()+' confirmação(ões) por enviar — mantém-se o que está neste aparelho'); return false; }
+    }
     if(manual && STATE.blocos.length && !confirm('Substituir os blocos e processos deste aparelho pelos do servidor? Os registos ainda não enviados perdem-se.')) return false;
     aviso('⏳ A sincronizar com o servidor…');
     try{
@@ -6184,6 +6204,88 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
       return true;
     }catch(e){ const el=document.getElementById('save-bar-txt'); if(el){ el.textContent='⚠ Não foi possível sincronizar: '+(e.message||e); el.style.color='var(--rust)'; } return false; }
   };
+})();
+</script>
+
+<script>
+/* ---- PASSO 3: FILA OFFLINE (envia sozinha quando há rede) + REGISTO DO SERVICE WORKER ---- */
+(function(){
+  const KF='bf_fila_v1', KC='bf_conflitos_v1';
+  const ler = k=>{ try{ return JSON.parse(localStorage.getItem(k)||'[]'); }catch(e){ return []; } };
+  const gravar = (k,v)=>{ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){ console.warn('Não foi possível guardar a fila', e); } };
+  const uid = ()=> (window.BF_USER && window.BF_USER.user_id) || null;
+  const meus = ()=> ler(KF).filter(x=>x.user===uid());
+  let emVoo = false;
+  const ehRede = e=>{
+    const m = String((e && e.message) || e || '');
+    if(navigator.onLine===false) return true;
+    if(e && (e.code==='PGRST301' || /jwt/i.test(m))) return true;                 // sessão a renovar
+    return /failed to fetch|networkerror|network request failed|load failed|fetch failed|timeout|timed out|gateway|bad gateway|unavailable/i.test(m) || (e && e.code===undefined && !e.status && /TypeError/i.test(m));
+  };
+  function adicionar(payload, resumo){
+    const f = ler(KF); f.push({ user: uid(), quando: new Date().toISOString(), resumo, payload, tentativas: 0 }); gravar(KF, f); desenhar();
+  }
+  const pendentes = ()=> meus().length;
+  async function flush(sincronizarNoFim){
+    if(emVoo || !window.sb || !uid() || navigator.onLine===false) return;
+    if(!meus().length) return;
+    emVoo = true; let enviados = 0;
+    try{
+      for(;;){
+        const it = meus()[0]; if(!it) break;
+        let res;
+        try{
+          const {data,error} = await window.sb.rpc('registar_guia', { p: it.payload });
+          if(error) throw error; res = data || {};
+        }catch(e){
+          if(ehRede(e)) break;                                                   // continua em fila
+          const f = ler(KF); const i = f.findIndex(x=>x.payload.client_id===it.payload.client_id);
+          if(i>=0){ f[i].tentativas=(f[i].tentativas||0)+1; f[i].ultimoErro=String((e&&e.message)||e); gravar(KF,f); }
+          break;
+        }
+        gravar(KF, ler(KF).filter(x=>x.payload.client_id!==it.payload.client_id)); enviados++;
+        if(res.erro || (res.recusados && res.recusados.length)){
+          const c = ler(KC); c.push({ quando: it.quando, resumo: it.resumo, erro: res.erro||null, recusados: res.recusados||[] }); gravar(KC, c);
+        }
+      }
+    } finally { emVoo = false; desenhar(); }
+    if(enviados>0 && !meus().length && sincronizarNoFim!==false && window.bfSincronizar) await window.bfSincronizar(false);
+  }
+  function abrirConflitos(){
+    const c = ler(KC); if(!c.length) return;
+    const ov = document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:14px;';
+    const linhas = c.map(x=>`<div style="border-top:1px solid #ddd;padding:8px 0;font-size:13px;"><strong>${x.resumo||'confirmação'}</strong><br><span style="color:#8A3B12;">${x.erro||''}${(x.recusados||[]).map(r=>`bloco ${r.bloco}: ${r.motivo}`).join(' · ')}</span><br><span style="color:#736E5E;font-size:11.5px;">${(x.quando||'').slice(0,16).replace('T',' ')}</span></div>`).join('');
+    ov.innerHTML = `<div style="background:#FBFAF6;border-radius:12px;max-width:440px;width:100%;max-height:80vh;overflow:auto;padding:16px;">
+      <p style="margin:0 0 6px;font-weight:700;font-size:15px;">Recusadas pelo servidor</p>
+      <p style="margin:0 0 8px;font-size:12.5px;color:#403E36;">Estas confirmações foram feitas sem rede, mas na altura de enviar o servidor viu que já não batiam com a realidade. O que está registado no servidor é o que vale. Fala com a Logística para corrigir no terreno.</p>
+      ${linhas}
+      <div style="display:flex;gap:8px;margin-top:12px;"><button id="cf-ok" class="btn ghost" style="flex:1;">Fechar</button><button id="cf-limpar" class="btn primary" style="flex:1;">Já vi — limpar lista</button></div></div>`;
+    document.body.appendChild(ov);
+    ov.querySelector('#cf-ok').onclick = ()=>ov.remove();
+    ov.querySelector('#cf-limpar').onclick = ()=>{ gravar(KC, []); ov.remove(); desenhar(); };
+  }
+  function desenhar(){
+    const chip = document.getElementById('user-chip'); if(!chip) return;
+    let b = document.getElementById('bf-fila');
+    if(!b){ b = document.createElement('button'); b.id='bf-fila'; b.type='button'; b.className='btn ghost small'; b.style.marginLeft='6px';
+      b.onclick = ()=>{ if(ler(KC).length) abrirConflitos(); else flush(true); }; chip.appendChild(b); }
+    const n = pendentes(), nc = ler(KC).length, off = navigator.onLine===false, outros = ler(KF).length - n;
+    let t = off ? '○ Sem rede' : '● Ligado';
+    if(n) t += ` · ⏳ ${n} por enviar`;
+    if(nc) t += ` · ⚠ ${nc} recusada(s)`;
+    if(outros>0) t += ` · ${outros} de outro utilizador`;
+    b.textContent = t;
+    b.style.color = nc ? 'var(--rust)' : (off||n ? '#8A5E0B' : 'inherit');
+  }
+  window.bfFila = { adicionar, pendentes, flush, ehRede, desenhar };
+  window.addEventListener('online', ()=>{ desenhar(); flush(true); });
+  window.addEventListener('offline', desenhar);
+  setInterval(()=>{ desenhar(); if(navigator.onLine!==false && pendentes()>0) flush(true); }, 20000);
+  setTimeout(()=>{ desenhar(); flush(true); }, 3000);
+  if('serviceWorker' in navigator && location.protocol==='https:'){
+    window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(e=>console.warn('SW', e)); });
+  }
 })();
 </script>
 
