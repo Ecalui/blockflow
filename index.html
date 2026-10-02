@@ -3878,8 +3878,8 @@ function viewConferente(){
   POSTOS.forEach(p=>{
     const b = document.createElement('button');
     b.className = 'btn small ' + (postoAtivo===p ? 'primary' : 'ghost');
-    b.textContent = 'Simular em: '+p;
-    b.onclick = ()=>{ postoAtivo = p; resetForm(); render(); };
+    b.textContent = 'Posto: '+p;
+    b.onclick = ()=>{ postoAtivo = p; try{ if(window.BF_USER) localStorage.setItem('bf_posto_'+window.BF_USER.user_id, p); }catch(e){} resetForm(); render(); };
     postoSel.appendChild(b);
   });
   const btnE = phone.querySelector('#btn-entrada');
@@ -4322,7 +4322,7 @@ function viewConferente(){
         if(addBtn) addBtn.onclick = ()=>{ if(formState.blocos.length < cap){ formState.blocos.push(''); formState.poroes.push(null); } renderForm(); };
       }
     }
-    area.querySelector('#btn-confirmar').onclick = ()=>{
+    area.querySelector('#btn-confirmar').onclick = async ()=>{
       if(!entrada && !formState.destino){ showToast(noPorto ? 'Escolhe a situação' : 'Escolhe o destino', 'err'); return; }
       const emiteGuia = !embarque && guiaEditavel;
       const guiaNumFinal = embarque ? null : parseInt(formState.guia, 10);
@@ -4376,6 +4376,54 @@ function viewConferente(){
       if(erros.length>0){ showToast(erros[0] + (erros.length>1 ? ` (+${erros.length-1})` : ''), 'err'); return; }
       const semProcesso = resolvidos.filter(b=> b && !b.processo);
       if(semProcesso.length>0){ const nums = semProcesso.map(b=>b.numero).join(', '); showToast(`Bloco(s) ${nums} sem processo — corrige antes de mover.`, 'err'); return; }
+      /* --- Ligado ao Supabase: o servidor valida e grava (quem = login, quando = hora do servidor) --- */
+      if(window.sb && window.BF_USER && ['admin','conferente'].includes(window.BF_USER.papel)){
+        const btnC = area.querySelector('#btn-confirmar'); const txtC = btnC.textContent;
+        btnC.disabled = true; btnC.textContent = 'A gravar…';
+        const volta = ()=>{ btnC.disabled = false; btnC.textContent = txtC; };
+        if(!formState.clientId) formState.clientId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : ('xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx').replace(/[xy]/g, c=>{ const r=Math.random()*16|0; return (c==='x'?r:(r&3|8)).toString(16); });
+        const SIT = { embarcado:'embarcou', aguarda_navio:'aguarda_navio', entregue_sogester:'entregue_sogester', aguarda_embarque_contentor:'aguarda_embarque_contentor' };
+        const contentorAqui = enchimentoAqui && formState.tipoSaidaChibia==='contentor';
+        const payload = {
+          client_id: formState.clientId,
+          tipo: embarque ? 'embarque' : (entrada ? 'entrada' : 'saida'),
+          de: embarque ? 'Sogester' : de,
+          para: embarque ? 'Sogester' : para,
+          numero: embarque ? null : guiaNumFinal,
+          modal: ehComboio ? 'comboio' : 'camiao',
+          motorista: (!embarque && !ehComboio) ? formState.nome : null,
+          viatura: (!embarque && !ehComboio) ? formState.matricula : null,
+          maquinista: (!embarque && ehComboio) ? formState.nome : null,
+          locomotiva: (!embarque && ehComboio) ? formState.matricula : null,
+          carruagem: (!embarque && ehComboio) ? formState.carruagem.trim() : null,
+          situacao: embarque ? SIT[formState.destino] : null,
+          tipo_carga: enchimentoAqui ? formState.tipoSaidaChibia : null,
+          contentor: contentorAqui ? formState.numContentor.trim() : null,
+          processo: embarque ? (embarqueComNavio ? formState.missaoId : null) : (contentorAqui ? formState.processoContentor.trim() : null),
+          poroes: embarqueComNavio ? poraoPorNumero : null,
+          blocos: blocosPreenchidos.slice()
+        };
+        let res;
+        try{
+          const {data,error} = await window.sb.rpc('registar_guia', { p: payload });
+          if(error) throw error; res = data || {};
+        }catch(e){ showToast('Não gravou no servidor: '+(e.message||e)+' — tenta de novo.', 'err'); volta(); return; }
+        if(res.erro){
+          const r0 = (res.recusados||[])[0];
+          showToast(res.erro + (r0 ? ` · bloco ${r0.bloco}: ${r0.motivo}` : ''), 'err'); volta(); return;
+        }
+        const nAc = res.duplicado ? blocosPreenchidos.length : (res.aceites||[]).length;
+        const nRec = (res.recusados||[]).length;
+        if(!embarque){
+          if(ehComboio) STATE.ultimoComboio = { maquinista: formState.nome, locomotiva: formState.matricula, carruagem: formState.carruagem.trim() };
+          else STATE.ultimo = { nome: formState.nome, matricula: formState.matricula };
+        }
+        const verbo = embarque ? 'registado(s)' : (entrada ? 'confirmado(s)' : 'em saída');
+        showToast(res.duplicado ? 'Esta confirmação já estava gravada.' : `${nAc} bloco(s) ${verbo} e gravado(s) no servidor` + (guiaNumFinal?` · guia ${guiaNumFinal}`:'') + (nRec?` · ${nRec} recusado(s): ${res.recusados[0].bloco} (${res.recusados[0].motivo})`:''), nRec ? 'err' : 'ok');
+        resetForm();
+        if(window.bfSincronizar) await window.bfSincronizar(false);
+        renderAll(); return;
+      }
       resolvidos.forEach(b=>{
         if(embarque){
           b.estado = formState.destino;
@@ -6005,7 +6053,8 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
     try{ localStorage.setItem(CK, JSON.stringify(p)); }catch(e){}
     window.BF_USER = p;
     if(p.papel!=='admin'){ role = ROLE_MAP[p.papel] || 'conferente'; document.body.classList.add('kiosk'); }
-    if(p.papel==='conferente' && p.posto){ postoAtivo = p.posto; document.body.classList.add('posto-fixo'); }
+    if(p.papel==='conferente'){ let ult=null; try{ ult = localStorage.getItem('bf_posto_'+p.user_id); }catch(e){}
+      postoAtivo = (ult && ['Chibia','Arimba','Caraculo','Saco-Mar','Sogester'].includes(ult)) ? ult : (p.posto || 'Chibia'); }
     const bar = $('save-bar');
     if(bar && !$('user-chip')){
       const chip = document.createElement('span'); chip.id='user-chip'; chip.style.cssText='flex-basis:100%;font-size:11.5px;';
@@ -6062,7 +6111,8 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
   async function ler(tabela, ordem){
     const PAG=1000; let tudo=[];
     for(let i=0;;i+=PAG){
-      const {data,error} = await window.sb.from(tabela).select('*').order(ordem).range(i,i+PAG-1);
+      let q = window.sb.from(tabela).select('*'); String(ordem).split(',').forEach(o=>{ q = q.order(o); });
+      const {data,error} = await q.range(i,i+PAG-1);
       if(error) throw error; tudo=tudo.concat(data); if(data.length<PAG) break;
     }
     return tudo;
@@ -6090,8 +6140,32 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
     if(manual && STATE.blocos.length && !confirm('Substituir os blocos e processos deste aparelho pelos do servidor? Os registos ainda não enviados perdem-se.')) return false;
     aviso('⏳ A sincronizar com o servidor…');
     try{
-      const [bl,pr,cl,mo,ma] = await Promise.all([ler('blocos','numero'),ler('processos','codigo'),ler('clientes','codigo'),ler('motoristas','nome'),ler('maquinistas','nome')]);
+      const [bl,pr,cl,mo,ma,gu,gb] = await Promise.all([ler('blocos','numero'),ler('processos','codigo'),ler('clientes','codigo'),ler('motoristas','nome'),ler('maquinistas','nome'),ler('guias','registado_em,id'),ler('guia_blocos','guia_id,bloco')]);
       STATE.blocos = bl.map(blocoDoServidor);
+      /* guias do servidor -> lista de confirmações, números usados e dados da viagem dos blocos em trânsito */
+      const blocosDaGuia = new Map(); gb.forEach(r=>{ if(!blocosDaGuia.has(r.guia_id)) blocosDaGuia.set(r.guia_id, []); blocosDaGuia.get(r.guia_id).push(r.bloco); });
+      const pesoDe = new Map(STATE.blocos.map(b=>[b.numero, b.pesoKg||0]));
+      const POSTOS_REDE = ['Chibia','Arimba','Caraculo','Saco-Mar','Sogester'];
+      const lista = gu.slice().sort((a,b)=> new Date(b.registado_em)-new Date(a.registado_em)).map(g=>{
+        const t = new Date(g.ocorrido_em || g.registado_em);
+        const comb = g.modal==='comboio', emb = g.tipo==='embarque';
+        const blocos = blocosDaGuia.get(g.id) || [];
+        const paraEmb = g.situacao==='embarcou' ? 'Embarcado · '+(g.navio||'?') : ({aguarda_navio:'Sogester (aguarda navio)', entregue_sogester:'Sogester (entregue)', aguarda_embarque_contentor:'Sogester (aguarda embarque contentor)'}[g.situacao] || 'Sogester');
+        return { id:g.id, numero:g.numero!=null?+g.numero:null, tipo:g.tipo,
+          data: t.toLocaleDateString('en-CA',{timeZone:'Africa/Luanda'}),
+          hora: t.toLocaleTimeString('pt-PT',{timeZone:'Africa/Luanda',hour:'2-digit',minute:'2-digit',hour12:false}),
+          de:g.de, para: emb ? paraEmb : g.para, modal: emb ? 'embarque' : (g.modal||'camiao'),
+          carruagem: g.carruagem||null, motorista: emb ? null : (comb ? g.maquinista : g.motorista), viatura: emb ? null : (comb ? g.locomotiva : g.viatura),
+          missaoId: emb ? (g.processo||null) : null, poroes: g.poroes||null, blocos,
+          pesoKg: blocos.reduce((s,n)=>s+(pesoDe.get(n)||0),0), divergente:false, desvio:null, posto:g.posto||null, registadoPor:g.registado_por||null };
+      });
+      STATE.guias = lista;
+      const usadas = lista.filter(g=> g.numero!=null && (g.tipo==='saida' || (g.tipo==='entrada' && !POSTOS_REDE.includes(g.de)))).map(g=>g.numero);
+      STATE.guiasUsadas = new Set(usadas);
+      STATE.ultimaGuia = usadas.length ? Math.max.apply(null, usadas) : 0;
+      const saidaPor = new Map(); lista.slice().reverse().forEach(g=>{ if(g.tipo==='saida' && g.numero!=null) saidaPor.set(g.numero+'|'+g.de, g); });
+      STATE.blocos.forEach(b=>{ if(b.estado!=='a_caminho') return; const g = saidaPor.get(b.guiaMovimento+'|'+b.origemMovimento); if(!g) return;
+        b.modalMovimento=g.modal; b.motoristaMovimento=g.motorista; b.viaturaMovimento=g.viatura; b.carruagemMovimento=g.carruagem; b.dataMovimento=g.data; b.horaMovimento=g.hora; });
       STATE.processos = pr.map(p=>({ codigo:p.codigo, cliente:p.cliente, origem:'Mingue', meta:p.meta, metaTon:p.meta_ton!=null?+p.meta_ton:null, porConfirmar:p.por_confirmar, criadoEm:p.criado_em, criadoPor:'Servidor',
         navio:p.navio, tipo:p.tipo, estado:p.estado }));
       STATE.clientes = cl.map(c=>({ codigo:c.codigo, nome:c.nome||c.codigo }));
