@@ -3890,7 +3890,7 @@ function viewConferente(){
   });
   const btnE = phone.querySelector('#btn-entrada');
   const btnS = phone.querySelector('#btn-saida');
-  btnE.onclick = ()=>{ confMode='entrada'; resetForm(); renderAll(); if(window.bfSincronizar && navigator.onLine!==false && window.BF_USER) window.bfSincronizar(false); };
+  btnE.onclick = ()=>{ confMode='entrada'; resetForm(); renderAll(); if(window.bfSincronizar && navigator.onLine!==false && window.BF_USER) window.bfSincronizar('auto'); };
   btnS.onclick = ()=>{ confMode='saida'; resetForm(); renderAll(); };
   function renderAll(){
     btnE.className = confMode==='entrada' ? 'on-entrada' : '';
@@ -6083,11 +6083,11 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
       const sair = document.createElement('button'); sair.className='btn ghost small'; sair.type='button'; sair.textContent='Sair';
       sair.onclick = async ()=>{ if(!confirm('Terminar sessão neste aparelho?')) return; try{ await sb.auth.signOut(); }catch(e){} localStorage.removeItem(CK); location.reload(); };
       chip.appendChild(document.createTextNode(' ')); chip.appendChild(sair);
-      const syn = document.createElement('button'); syn.className='btn ghost small'; syn.type='button'; syn.textContent='Sincronizar'; syn.onclick=()=>window.bfSincronizar && window.bfSincronizar(true);
+      const syn = document.createElement('button'); syn.className='btn ghost small'; syn.type='button'; syn.textContent='Atualizar'; syn.onclick=()=>window.bfSincronizar && window.bfSincronizar(true);
       chip.appendChild(document.createTextNode(' ')); chip.appendChild(syn); bar.prepend(chip);
     }
     ov.remove(); resetFormSeguro(); render();
-    setTimeout(()=>{ if(window.bfSincronizar && !offline && navigator.onLine!==false) window.bfSincronizar(false); }, 400);
+    setTimeout(()=>{ if(window.bfSincronizar && !offline && navigator.onLine!==false) window.bfSincronizar('auto'); }, 400);
   }
   function resetFormSeguro(){ try{ if(typeof resetForm==='function') resetForm(); }catch(e){} }
   function semAcesso(t){ $('login-form').style.display='none'; sub(t); $('login-sair').style.display='block';
@@ -6157,14 +6157,19 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
     }
     return b;
   }
-  window.bfSincronizar = async function(manual){
-    if(!window.sb || !window.BF_USER) return false;
+  let emSync = false;
+  const aEscrever = ()=>{ const a=document.activeElement; if(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return true;
+    try{ const f=formState; return !!(f && ((f.selecionados&&f.selecionados.length) || (f.blocos||[]).some(x=>x&&String(x).trim()) || f.nome || f.guia || f.destino)); }catch(e){ return false; } };
+  /* modo: true = botão «Atualizar» · false = depois de gravar · 'auto' = em segundo plano (silencioso, não interrompe quem está a escrever) */
+  window.bfSincronizar = async function(modo){
+    const auto = (modo==='auto');
+    if(!window.sb || !window.BF_USER || emSync) return false;
     if(window.bfFila && window.bfFila.pendentes()>0){
       await window.bfFila.flush(false);
-      if(window.bfFila.pendentes()>0){ aviso('⏳ '+window.bfFila.pendentes()+' confirmação(ões) por enviar — mantém-se o que está neste aparelho'); return false; }
+      if(window.bfFila.pendentes()>0){ if(!auto) aviso('⏳ '+window.bfFila.pendentes()+' confirmação(ões) à espera de rede — vão ser enviadas sozinhas. Nada se perde.'); return false; }
     }
-    if(manual && STATE.blocos.length && !confirm('Substituir os blocos e processos deste aparelho pelos do servidor? Os registos ainda não enviados perdem-se.')) return false;
-    aviso('⏳ A sincronizar com o servidor…');
+    emSync = true;
+    if(!auto) aviso('⏳ A atualizar…');
     try{
       const [bl,pr,cl,mo,ma,gu,gb] = await Promise.all([ler('blocos','numero'),ler('processos','codigo'),ler('clientes','codigo'),ler('motoristas','nome'),ler('maquinistas','nome'),ler('guias','registado_em,id'),ler('guia_blocos','guia_id,bloco')]);
       STATE.blocos = bl.map(blocoDoServidor);
@@ -6199,11 +6204,18 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
         dataCarregamento:fmt(p.data_embarque), dataPosicionamento:fmt(p.data_posicionamento), estado:p.estado==='activo'?'activa':'encerrada' }));
       if(mo.length) STATE.motoristas = mo.map(m=>({ nome:m.nome, matricula:m.matricula, activo:m.activo }));
       if(ma.length) STATE.maquinistas = ma.map(m=>({ nome:m.nome, activo:m.activo }));
-      render();
-      const d=new Date(); aviso(`🔄 Sincronizado às ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')} · ${STATE.blocos.length} blocos · ${STATE.processos.length} processos`);
+      if(!(auto && aEscrever())) render();
+      window.BF_ULTIMO_SYNC = Date.now(); if(window.bfFila) window.bfFila.desenhar();
+      const d=new Date(); if(!auto) aviso(`🔄 Atualizado às ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')} · ${STATE.blocos.length} blocos · ${STATE.processos.length} processos`);
       return true;
-    }catch(e){ const el=document.getElementById('save-bar-txt'); if(el){ el.textContent='⚠ Não foi possível sincronizar: '+(e.message||e); el.style.color='var(--rust)'; } return false; }
+    }catch(e){ if(!auto){ const el=document.getElementById('save-bar-txt'); if(el){ el.textContent='Sem ligação neste momento — o que já tens no aparelho continua a funcionar.'; el.style.color='var(--ink-mute)'; } } return false; }
+    finally{ emSync = false; }
   };
+  /* atualização automática: de minuto a minuto, ao voltar à app e quando a rede regressa */
+  const auto = ()=>{ if(document.visibilityState==='visible' && navigator.onLine!==false && window.BF_USER) window.bfSincronizar('auto'); };
+  setInterval(auto, 60000);
+  document.addEventListener('visibilitychange', auto);
+  window.addEventListener('online', ()=>setTimeout(auto, 1500));
 })();
 </script>
 
@@ -6271,7 +6283,8 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
     if(!b){ b = document.createElement('button'); b.id='bf-fila'; b.type='button'; b.className='btn ghost small'; b.style.marginLeft='6px';
       b.onclick = ()=>{ if(ler(KC).length) abrirConflitos(); else flush(true); }; chip.appendChild(b); }
     const n = pendentes(), nc = ler(KC).length, off = navigator.onLine===false, outros = ler(KF).length - n;
-    let t = off ? '○ Sem rede' : '● Ligado';
+    const hs = window.BF_ULTIMO_SYNC ? new Date(window.BF_ULTIMO_SYNC).toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit',hour12:false}) : null;
+    let t = off ? '○ Sem rede' : ('● Ligado' + (hs ? ' · atualizado '+hs : ''));
     if(n) t += ` · ⏳ ${n} por enviar`;
     if(nc) t += ` · ⚠ ${nc} recusada(s)`;
     if(outros>0) t += ` · ${outros} de outro utilizador`;
