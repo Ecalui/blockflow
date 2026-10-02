@@ -3875,7 +3875,10 @@ function viewConferente(){
   `;
   wrap.appendChild(phone);
   const postoSel = phone.querySelector('#posto-seletor');
-  POSTOS.forEach(p=>{
+  const postosVisiveis = (()=>{ const u = window.BF_USER; if(!u || u.papel==='admin') return POSTOS;
+    const perm = [u.posto].concat(u.postos||[]).filter(x=>POSTOS.includes(x)); return POSTOS.filter(x=>perm.includes(x)); })();
+  if(postosVisiveis.length<=1) postoSel.style.display='none';
+  postosVisiveis.forEach(p=>{
     const b = document.createElement('button');
     b.className = 'btn small ' + (postoAtivo===p ? 'primary' : 'ghost');
     b.textContent = 'Posto: '+p;
@@ -6045,16 +6048,19 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
   const mostrarForm = ()=>{ sub('Entra com a tua conta HM Granitos.'); $('login-form').style.display='block'; };
 
   async function carregarPerfil(uid){
-    const {data,error} = await sb.from('perfis').select('nome,papel,posto,activo').eq('user_id',uid).maybeSingle();
-    if(error) throw error;
-    return data ? {...data, user_id:uid} : null;
+    let r = await sb.from('perfis').select('nome,papel,posto,postos,activo').eq('user_id',uid).maybeSingle();
+    if(r.error) r = await sb.from('perfis').select('nome,papel,posto,activo').eq('user_id',uid).maybeSingle();   // coluna «postos» ainda não criada
+    if(r.error) throw r.error;
+    return r.data ? {...r.data, user_id:uid} : null;
   }
   function entrar(p, offline){
     try{ localStorage.setItem(CK, JSON.stringify(p)); }catch(e){}
     window.BF_USER = p;
     if(p.papel!=='admin'){ role = ROLE_MAP[p.papel] || 'conferente'; document.body.classList.add('kiosk'); }
     if(p.papel==='conferente'){ let ult=null; try{ ult = localStorage.getItem('bf_posto_'+p.user_id); }catch(e){}
-      postoAtivo = (ult && ['Chibia','Arimba','Caraculo','Saco-Mar','Sogester'].includes(ult)) ? ult : (p.posto || 'Chibia'); }
+      const perm = [p.posto].concat(p.postos||[]).filter(Boolean);
+      postoAtivo = (ult && perm.includes(ult)) ? ult : (p.posto || perm[0] || 'Chibia'); }
+    if(p.papel!=='admin'){ ['btn-backup','btn-limpar'].forEach(i=>{ const e=$(i); if(e) e.style.display='none'; }); const fr=$('file-restaurar'); if(fr && fr.parentElement) fr.parentElement.style.display='none'; const fn=document.querySelector('.foot-note'); if(fn) fn.style.display='none'; }
     const bar = $('save-bar');
     if(bar && !$('user-chip')){
       const chip = document.createElement('span'); chip.id='user-chip'; chip.style.cssText='flex-basis:100%;font-size:11.5px;';
