@@ -3267,6 +3267,9 @@ function viewProducao(){
     <div class="phone-body">
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 14px;">O número do bloco é o ID que carrega o processo e o peso. Medidas ficam gravadas no momento — o peso (comp × alt × larg × ${DENSIDADE_GRANITO} t/m³) viaja com o bloco por toda a cadeia.</p>
 
+      <p class="section-title">Pedreira de origem</p>
+      <select id="input-pedreira" style="width:100%;height:38px;border-radius:8px;border:1px solid var(--border-strong);padding:0 8px;font-size:13px;margin-bottom:12px;background:var(--surface);color:var(--ink);">${['Mingue',...ORIGENS_BAIXA_ATIVIDADE].map(o=>`<option>${o}</option>`).join('')}</select>
+
       <p class="section-title">Nº do bloco <span style="font-weight:400;color:var(--ink-mute);">(obrigatório, único)</span></p>
       <input id="input-num" placeholder="Ex: 68450" style="width:100%;height:38px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-size:13px;font-family:var(--mono);margin-bottom:4px;background:var(--surface);color:var(--ink);" />
       <p id="num-warn" style="font-size:11.5px;margin:0 0 12px;display:none;color:var(--rust);"></p>
@@ -3300,6 +3303,7 @@ function viewProducao(){
   wrap.appendChild(phone);
 
   const inputNum = phone.querySelector('#input-num');
+  const pedreiraSel = ()=> (phone.querySelector('#input-pedreira')||{}).value || 'Mingue';
   const inputComp = phone.querySelector('#input-comp');
   const inputAlt = phone.querySelector('#input-alt');
   const inputLarg = phone.querySelector('#input-larg');
@@ -3587,7 +3591,7 @@ function viewProducao(){
     if(!m){ warn.textContent = 'Preenche as medidas (Comp × Alt × Larg) para o peso ser calculado e gravado.'; warn.style.display = 'block'; return; }
     const novo = {
       numero: num, processo: processoSel.codigo,
-      origem: 'Mingue', local: 'Mingue', estado: 'no_mingue',
+      origem: pedreiraSel(), local: pedreiraSel(), estado: 'no_mingue',
       tipoCarga: tipoCargaSel,
       compM: m.compM, altM: m.altM, largM: m.largM, cbm: m.cbm, pesoKg: m.pesoKg,
       registadoHoje: true, registadoPor: 'Produção', historico: [],
@@ -3609,6 +3613,7 @@ function viewProducao(){
   /* ---- CARGA INICIAL (Excel/CSV) — só para arranque a meio da operação ---- */
   (function cargaInicial(){
     const area = phone.querySelector('#carga-area');
+    const ehProducao = ()=> !!(window.BF_USER && window.BF_USER.papel==='producao');
     const norm = s=>String(s==null?'':s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
     const LOCAIS = ['Mingue',...ORIGENS_BAIXA_ATIVIDADE,...POSTOS];
     const ALIAS = { porto:'Sogester', terminal:'Sogester', sacomar:'Saco-Mar', estaleiro:'Chibia', estaleirocentral:'Chibia' };
@@ -3619,15 +3624,22 @@ function viewProducao(){
       const al = Object.keys(ALIAS).find(k=>n.includes(k)); return al ? ALIAS[al] : null;
     };
     const CAMPOS = [['numero','Nº do bloco',/bloco/i],['processo','Processo',/process/i],['cliente','Cliente',/cliente|descarga/i],
-      ['local','Localização actual',/localiza|parque|invent|^local$/i],['peso','Peso',/peso/i],['comp','Comp',/^comp/i],['alt','Alt',/^alt/i],['larg','Larg',/^larg/i],['cbm','CBM',/cbm|m3|m³/i]];
+      ['local','Localização / pedreira',/localiza|parque|invent|pedreira|origem|^local$/i],['peso','Peso',/peso/i],['comp','Comp',/^comp/i],['alt','Alt',/^alt/i],['larg','Larg',/^larg/i],['cbm','CBM',/cbm|m3|m³/i]];
     let linhas=[], cab=[], map={}, locDef='Mingue';
     const num = v=>{ const n=parseFloat(String(v).replace(/\s/g,'').replace(',','.')); return isFinite(n)?n:null; };
 
-    area.innerHTML = `<p class="section-title" style="margin-top:16px;">Carga inicial (Excel) <span style="font-weight:400;color:var(--ink-mute);">— só para arranque</span></p>
+    area.innerHTML = `<p class="section-title" style="margin-top:16px;">${ehProducao()?'Importar produção (Excel)':'Carga inicial (Excel)'} <span style="font-weight:400;color:var(--ink-mute);">${ehProducao()?'— listas das pedreiras':'— só para arranque'}</span></p>
       <p style="font-size:11.5px;color:var(--ink-mute);margin:0 0 8px;">Importa blocos já existentes com o processo e a localização real de cada um. Fica marcado no histórico como «carga inicial».</p>
       <input id="carga-file" type="file" accept=".xlsx,.xls,.csv" style="font-size:12px;margin-bottom:8px;max-width:100%;" />
       <div id="carga-out"></div>`;
     const out = area.querySelector('#carga-out');
+    const porCompletar = STATE.blocos.filter(b=>b.porCompletar && !b.pesoKg && b.estado!=='anulado');
+    if(porCompletar.length){
+      const pc = document.createElement('div'); pc.style.cssText='margin:0 0 10px;padding:10px;border:1px solid var(--amber);border-radius:10px;';
+      pc.innerHTML = `<p style="margin:0 0 6px;font-size:12.5px;"><strong>${porCompletar.length}</strong> bloco(s) registado(s) na entrada, por completar (processo e medidas). Toca para abrir:</p><div style="display:flex;flex-wrap:wrap;gap:6px;">${porCompletar.slice(0,30).map(b=>`<button class="btn ghost small" type="button" data-n="${b.numero}">${b.numero}</button>`).join('')}</div>`;
+      pc.querySelectorAll('button').forEach(bt=>bt.onclick=()=>{ edicaoNum = bt.dataset.n; renderEdicao(); try{ editArea.scrollIntoView({behavior:'smooth'}); }catch(e){} });
+      area.parentNode.insertBefore(pc, area);
+    }
 
     area.querySelector('#carga-file').onchange = async e=>{
       const f = e.target.files[0]; if(!f) return;
@@ -3636,6 +3648,7 @@ function viewProducao(){
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1, defval:''});
       const hi = rows.slice(0,15).findIndex(r=>r.filter(c=>String(c).trim()!=='').length>=3 && r.some(c=>/bloco/i.test(String(c))));
       if(hi<0){ out.innerHTML='<p style="font-size:12px;color:var(--rust);">Não encontrei um cabeçalho com «Bloco» nas primeiras 15 linhas.</p>'; return; }
+      if(ehProducao()) locDef = pedreiraSel();
       cab = rows[hi].map(c=>String(c).trim()); linhas = rows.slice(hi+1).filter(r=>r.some(c=>String(c).trim()!==''));
       map = {}; const usadas = new Set();
       CAMPOS.forEach(([k,,rx])=>{ const i = cab.findIndex((c,ix)=>!usadas.has(ix)&&rx.test(c)); if(i>=0){ map[k]=i; usadas.add(i); } });
@@ -3655,6 +3668,7 @@ function viewProducao(){
         const rawLoc = String(g('local')).trim(); let local = normLocal(rawLoc);
         if(rawLoc && !local){ erros.push(`Bloco ${n}: localização «${rawLoc}» desconhecida`); return; }
         if(!local){ local = locDef; localDef++; }
+        if(ehProducao() && !(local==='Mingue' || ORIGENS_BAIXA_ATIVIDADE.includes(local))){ erros.push(`Bloco ${n}: a produção só entra em pedreiras (${local})`); return; }
         const proc = String(g('processo')).trim().toUpperCase().replace(/\s+/g,'') || null; if(!proc) semProc++;
         let comp=num(g('comp')), alt=num(g('alt')), larg=num(g('larg')), cbm=num(g('cbm')), peso=num(g('peso'));
         if(!cbm && comp && alt && larg) cbm = cbmDeMedidas(comp,alt,larg);
@@ -3669,7 +3683,7 @@ function viewProducao(){
         <p style="font-size:11.5px;color:var(--ink-mute);margin:0 0 4px;">Colunas do ficheiro (corrige se a detecção falhou):</p>
         <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 8px;align-items:center;font-size:12px;margin-bottom:8px;">
           ${CAMPOS.map(([k,l])=>`<span>${l}</span>${sel(k)}`).join('')}
-          <span>Local por omissão</span><select id="carga-locdef" style="height:28px;font-size:11.5px;">${LOCAIS.map(l=>`<option ${l===locDef?'selected':''}>${l}</option>`).join('')}</select>
+          <span>Local por omissão</span><select id="carga-locdef" style="height:28px;font-size:11.5px;">${(ehProducao()?['Mingue',...ORIGENS_BAIXA_ATIVIDADE]:LOCAIS).map(l=>`<option ${l===locDef?'selected':''}>${l}</option>`).join('')}</select>
         </div>
         <div style="border:1px solid var(--border-strong);border-radius:10px;padding:10px;font-size:12.5px;">
           <p style="margin:0 0 4px;"><strong>${ok.length}</strong> prontos a importar · <strong style="color:${erros.length?'var(--rust)':'inherit'};">${erros.length}</strong> com erro · ${linhas.length} linhas lidas</p>
@@ -3683,8 +3697,26 @@ function viewProducao(){
         <button id="carga-go" class="btn success" style="width:100%;height:44px;margin-top:8px;" ${ok.length&&map.numero!=null?'':'disabled'}>Importar ${ok.length} blocos</button>`;
       out.querySelectorAll('select[data-k]').forEach(s=>s.onchange=()=>{ map[s.dataset.k]= s.value===''?undefined:+s.value; analisar(); });
       out.querySelector('#carga-locdef').onchange = e=>{ locDef=e.target.value; analisar(); };
-      out.querySelector('#carga-go').onclick = ()=>{
-        if(!confirm(`Importar ${ok.length} blocos como carga inicial? Não é possível desfazer.`)) return;
+      out.querySelector('#carga-go').onclick = async ()=>{
+        if(!confirm(`Importar ${ok.length} blocos como ${ehProducao()?'produção':'carga inicial'}? Não é possível desfazer.`)) return;
+        if(window.sb && window.BF_USER && ['admin','producao'].includes(window.BF_USER.papel)){
+          const btn = out.querySelector('#carga-go'); btn.disabled = true;
+          const nome = (area.querySelector('#carga-file').files[0]||{}).name || 'carga', T = 200, partes = Math.ceil(ok.length/T);
+          let imp = 0, rec = [];
+          try{
+            for(let i=0;i<partes;i++){
+              btn.textContent = `A enviar ${i+1}/${partes}…`;
+              const lote = ok.slice(i*T,(i+1)*T).map(b=>({ numero:b.numero, processo:b.processo, cliente:b.cliente, local:b.local, peso_kg:b.peso?Math.round(b.peso):null, cbm:b.cbm, comp:b.comp, alt:b.alt, larg:b.larg }));
+              const {data,error} = await window.sb.rpc(window.BF_USER.papel==='admin' ? 'importar_carga_inicial' : 'importar_producao', { p:{ ficheiro:`${nome} [${i+1}/${partes}]`, blocos:lote } });
+              if(error) throw error; if(data && data.erro) throw new Error(data.erro);
+              imp += data.importados; rec = rec.concat(data.recusados||[]);
+            }
+          }catch(e){ showToast('Falhou o envio: '+(e.message||e)+' · já enviados: '+imp, 'err'); btn.disabled=false; btn.textContent='Importar'; return; }
+          out.innerHTML=''; area.querySelector('#carga-file').value='';
+          showToast(`${ehProducao()?'Produção enviada':'Carga enviada'} ao servidor: ${imp} blocos`+(rec.length?` · ${rec.length} recusados`:''), 'ok');
+          if(window.bfSincronizar) await window.bfSincronizar(false);
+          return;
+        }
         ok.forEach(b=>{
           if(b.processo && !STATE.processos.some(p=>p.codigo===b.processo)){
             if(b.cliente && !STATE.clientes.some(c=>c.codigo===b.cliente)) STATE.clientes.push({ codigo:b.cliente, nome:b.cliente, criadoEm:agoraISO(), criadoPor:'Carga inicial' });
@@ -3736,7 +3768,7 @@ function pendentesParaEntrada(postoDestino, origem){
   if(!origem) return [];
   return STATE.blocos.filter(b=>{
     if(b.estado === 'anulado') return false;
-    if(origem === 'Mingue') return b.local === 'Mingue';
+    if(origem === 'Mingue' || ORIGENS_BAIXA_ATIVIDADE.includes(origem)) return b.local === origem && b.estado === 'no_mingue';
     return b.estado === 'a_caminho' && b.origemMovimento === origem;
   });
 }
@@ -3753,6 +3785,8 @@ function viagensParaEntrada(postoDestino, origem){
     }
     map.get(chave).blocos.push(b);
   });
+  if(!map.has('PRODUCAO') && (origem==='Mingue' || ORIGENS_BAIXA_ATIVIDADE.includes(origem)))
+    map.set('PRODUCAO', { chave:'PRODUCAO', guia:null, hora:null, data:null, destinoDeclarado:null, desviada:false, modal:'camiao', motorista:null, viatura:null, carruagem:null, blocos:[] });
   return Array.from(map.values()).sort((a,b)=>(a.guia||0)-(b.guia||0));
 }
 function viagemSelecionada(){
@@ -4178,6 +4212,25 @@ function viewConferente(){
           if(formState.focoFiltro){ filtroInput.focus(); filtroInput.selectionStart = filtroInput.selectionEnd = filtroInput.value.length; }
         }
       }
+      if(guiaProducao){
+        const w = document.createElement('div'); w.style.cssText = 'margin:10px 0 0;padding:10px;border:1px dashed var(--border-strong);border-radius:10px;';
+        w.innerHTML = `<p style="font-size:12px;margin:0 0 6px;color:var(--ink-soft);">Chegou um bloco que não está na lista?</p>
+          <div style="display:flex;gap:6px;"><input id="novo-bloco" placeholder="Nº do bloco" style="flex:1;min-width:0;height:38px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-family:var(--mono);background:var(--surface);color:var(--ink);" /><button id="btn-novo-bloco" class="btn ghost small" type="button">Registar na entrada</button></div>
+          <p style="font-size:11px;color:var(--ink-mute);margin:6px 0 0;">Fica marcado «por completar»: a Produção acrescenta o processo e as medidas depois.</p>`;
+        listWrap.appendChild(w);
+        w.querySelector('#btn-novo-bloco').onclick = ()=>{
+          const n = w.querySelector('#novo-bloco').value.trim().toUpperCase();
+          if(!/^[A-Z0-9]+$/.test(n)){ showToast('Indica um nº de bloco válido (letras e números).', 'err'); return; }
+          const ex = STATE.blocos.find(x=>x.numero===n);
+          if(ex){ showToast(`O bloco ${n} já existe (${ex.local||ex.estado}).`, 'err'); return; }
+          const quando = agoraISO()+' '+nowStr(), por = 'Conferente '+postoAtivo;
+          STATE.blocos.push({ numero:n, processo:null, origem:formState.origem, local:formState.origem, estado:'no_mingue', tipoCarga:'granel', contentor:null,
+            registadoHoje:true, registadoPor:por, porCompletar:true,
+            historico:[ {campo:'criação',de:null,para:n,por,quando}, {campo:'origem do registo',de:null,para:'registado na entrada · '+postoAtivo,por,quando} ] });
+          if(formState.selecionados.length < cap) formState.selecionados.push(n);
+          showToast(`Bloco ${n} registado e marcado para dar entrada.`, 'ok'); renderForm();
+        };
+      }
       const espaco = document.createElement('div'); espaco.style.height = '14px'; listWrap.appendChild(espaco);
     } else {
       const montarInputsBloco = (wrap, reagirNoBlur)=>{
@@ -4295,7 +4348,7 @@ function viewConferente(){
         if(!entrada){
           if(b.local !== postoAtivo){ erros.push(`Bloco ${num} não está em ${postoAtivo} (está em ${b.local||'—'}).`); return null; }
         } else {
-          const esperado = formState.origem === 'Mingue' ? (b.local === 'Mingue') : (b.estado === 'a_caminho' && b.origemMovimento === formState.origem && String(b.guiaMovimento) === formState.guiaSel);
+          const esperado = (formState.origem === 'Mingue' || ORIGENS_BAIXA_ATIVIDADE.includes(formState.origem)) ? (b.local === formState.origem && b.estado === 'no_mingue') : (b.estado === 'a_caminho' && b.origemMovimento === formState.origem && String(b.guiaMovimento) === formState.guiaSel);
           if(!esperado){ erros.push(`Bloco ${num} não está a caminho de ${postoAtivo} nesta guia.`); return null; }
         }
         return b;
@@ -5939,7 +5992,9 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
       chip.textContent = '👤 '+p.nome+' · '+(NOMES[p.papel]||p.papel)+(p.posto?' · '+p.posto:'')+(offline?' · sem rede':'');
       const sair = document.createElement('button'); sair.className='btn ghost small'; sair.type='button'; sair.textContent='Sair';
       sair.onclick = async ()=>{ if(!confirm('Terminar sessão neste aparelho?')) return; try{ await sb.auth.signOut(); }catch(e){} localStorage.removeItem(CK); location.reload(); };
-      chip.appendChild(document.createTextNode(' ')); chip.appendChild(sair); bar.prepend(chip);
+      chip.appendChild(document.createTextNode(' ')); chip.appendChild(sair);
+      const syn = document.createElement('button'); syn.className='btn ghost small'; syn.type='button'; syn.textContent='Sincronizar'; syn.onclick=()=>window.bfSincronizar && window.bfSincronizar(true);
+      chip.appendChild(document.createTextNode(' ')); chip.appendChild(syn); bar.prepend(chip);
     }
     ov.remove(); resetFormSeguro(); render();
   }
@@ -5975,6 +6030,60 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
   });
   if(sb) sb.auth.onAuthStateChange(ev=>{ if(ev==='SIGNED_OUT' && window.BF_USER){ localStorage.removeItem(CK); location.reload(); } });
   arranque();
+})();
+</script>
+
+<script>
+/* ---- PASSO 2A: espelho do servidor (leitura) ---- */
+(function(){
+  const aviso = t=>{ const el=document.getElementById('save-bar-txt'); if(el){ el.textContent=t; el.style.color='var(--ink-mute)'; } };
+  const fmt = d=>{ if(!d) return null; const [y,m,dd]=String(d).slice(0,10).split('-'); return `${dd}/${m}/${y}`; };
+  const hojeLuanda = ()=>new Date().toLocaleDateString('en-CA',{timeZone:'Africa/Luanda'});
+  async function ler(tabela, ordem){
+    const PAG=1000; let tudo=[];
+    for(let i=0;;i+=PAG){
+      const {data,error} = await window.sb.from(tabela).select('*').order(ordem).range(i,i+PAG-1);
+      if(error) throw error; tudo=tudo.concat(data); if(data.length<PAG) break;
+    }
+    return tudo;
+  }
+  function blocoDoServidor(r){
+    const b = { numero:r.numero, processo:r.processo||null, origem:r.origem, tipoCarga:r.tipo_carga, contentor:r.contentor||null,
+      pesoKg:r.peso_kg||undefined, cbm:r.cbm!=null?+r.cbm:undefined, compM:r.comp_m!=null?+r.comp_m:undefined, altM:r.alt_m!=null?+r.alt_m:undefined, largM:r.larg_m!=null?+r.larg_m:undefined,
+      porao:r.porao||null, liberado: r.liberado ? {quando:r.liberado_em, lista:r.liberado_lista} : null,
+      porCompletar: !!r.por_completar, registadoHoje: new Date(r.criado_em).toLocaleDateString('en-CA',{timeZone:'Africa/Luanda'})===hojeLuanda(), registadoPor:'Servidor', historico:[],
+      origemMovimento:null, destinoMovimento:null, guiaMovimento:null, divergencia:false };
+    switch(r.estado){
+      case 'na_origem': b.estado='no_mingue'; b.local=r.local; break;
+      case 'confirmado': b.estado='confirmado'; b.local=r.local; break;
+      case 'a_caminho': b.estado='a_caminho'; b.local='A caminho de '+r.destino_mov; b.origemMovimento=r.origem_mov; b.destinoMovimento=r.destino_mov; b.guiaMovimento=r.guia_mov; break;
+      case 'aguarda_navio': b.estado='aguarda_navio'; b.local='Sogester (aguarda navio)'; break;
+      case 'entregue_sogester': b.estado='entregue_sogester'; b.local='Sogester (entregue)'; break;
+      case 'aguarda_embarque_contentor': b.estado='aguarda_embarque_contentor'; b.local='Sogester (aguarda embarque contentor)'; break;
+      case 'embarcado': b.estado='embarcado'; b.local='Embarcado · '+(r.navio||'?'); b.missaoId=r.processo; break;
+      default: b.estado='anulado'; b.local='Mingue (anulado)';
+    }
+    return b;
+  }
+  window.bfSincronizar = async function(manual){
+    if(!window.sb || !window.BF_USER) return false;
+    if(manual && STATE.blocos.length && !confirm('Substituir os blocos e processos deste aparelho pelos do servidor? Os registos ainda não enviados perdem-se.')) return false;
+    aviso('⏳ A sincronizar com o servidor…');
+    try{
+      const [bl,pr,cl,mo,ma] = await Promise.all([ler('blocos','numero'),ler('processos','codigo'),ler('clientes','codigo'),ler('motoristas','nome'),ler('maquinistas','nome')]);
+      STATE.blocos = bl.map(blocoDoServidor);
+      STATE.processos = pr.map(p=>({ codigo:p.codigo, cliente:p.cliente, origem:'Mingue', meta:p.meta, metaTon:p.meta_ton!=null?+p.meta_ton:null, porConfirmar:p.por_confirmar, criadoEm:p.criado_em, criadoPor:'Servidor',
+        navio:p.navio, tipo:p.tipo, estado:p.estado }));
+      STATE.clientes = cl.map(c=>({ codigo:c.codigo, nome:c.nome||c.codigo }));
+      STATE.missoes = pr.filter(p=>p.navio).map(p=>({ id:p.codigo, navio:p.navio, tipo:p.tipo, local:p.local_carregamento, meta:p.meta, metaTon:+p.meta_ton||0,
+        dataCarregamento:fmt(p.data_embarque), dataPosicionamento:fmt(p.data_posicionamento), estado:p.estado==='activo'?'activa':'encerrada' }));
+      if(mo.length) STATE.motoristas = mo.map(m=>({ nome:m.nome, matricula:m.matricula, activo:m.activo }));
+      if(ma.length) STATE.maquinistas = ma.map(m=>({ nome:m.nome, activo:m.activo }));
+      render();
+      const d=new Date(); aviso(`🔄 Sincronizado às ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')} · ${STATE.blocos.length} blocos · ${STATE.processos.length} processos`);
+      return true;
+    }catch(e){ const el=document.getElementById('save-bar-txt'); if(el){ el.textContent='⚠ Não foi possível sincronizar: '+(e.message||e); el.style.color='var(--rust)'; } return false; }
+  };
 })();
 </script>
 
