@@ -1,7 +1,7 @@
 {
-  "name": "BlockFlow · Controlo de Blocos",
+  "name": "BlockFlow · HMGranitos",
   "short_name": "BlockFlow",
-  "description": "Controlo e rastreabilidade de blocos de granito — HM Granitos",
+  "description": "Controlo e rastreabilidade de blocos de granito — HMGranitos",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
