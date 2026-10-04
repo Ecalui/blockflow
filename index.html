@@ -3513,11 +3513,12 @@ function viewProducao(){
     const b = STATE.blocos.find(x=>x.numero===edicaoNum);
     if(!b){ editArea.innerHTML = `<p style="font-size:12.5px;color:var(--rust);">Bloco ${edicaoNum} não encontrado.</p>`; return; }
     const numEditavel = b.local === 'Mingue' && b.estado!=='anulado';
+    const numEdUI = numEditavel && !servidorLog();
     const clienteActual = clienteDeBloco(b);
     editArea.innerHTML = `
       <div style="border:1px solid var(--border-strong);border-radius:10px;padding:10px;margin-bottom:10px;">
         <p style="font-size:12px;color:var(--ink-mute);margin:0 0 8px;">A corrigir bloco ${b.numero} · ${b.pesoKg?formatarTon(b.pesoKg)+' · ':''}${b.estado==='anulado' ? '⊘ anulado' : (b.local || 'sem localização')}</p>
-        <input id="edit-num" value="${b.numero}" placeholder="Nº do bloco" ${numEditavel?'':'disabled'} style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-size:13px;font-family:var(--mono);margin-bottom:6px;background:${numEditavel?'var(--surface)':'var(--surface-2)'};color:var(--ink);" />
+        <input id="edit-num" value="${b.numero}" placeholder="Nº do bloco" ${numEdUI?'':'disabled'} style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-size:13px;font-family:var(--mono);margin-bottom:6px;background:${numEdUI?'var(--surface)':'var(--surface-2)'};color:var(--ink);" />
         <p class="section-title" style="margin-top:0;">Medidas (m)</p>
         <div class="medida-grid">
           <input id="edit-comp" value="${b.compM||''}" placeholder="Comp" inputmode="decimal" />
@@ -3528,6 +3529,7 @@ function viewProducao(){
         <input id="edit-proc" value="${b.processo||''}" placeholder="Processo" style="width:100%;height:36px;border-radius:8px;border:1px solid ${b.processo?'var(--border-strong)':'var(--amber)'};padding:0 10px;font-size:13px;font-family:var(--mono);margin-bottom:6px;background:var(--surface);color:var(--ink);text-transform:uppercase;" />
         <p style="font-size:11.5px;color:var(--ink-mute);margin:0 0 8px;">Cliente (herdado): <strong style="color:var(--ink-soft);">${clienteActual || '—'}</strong></p>
         <div style="display:flex;gap:6px;margin-bottom:10px;" id="edit-tipo-carga"></div>
+        ${servidorLog() ? `<input id="edit-motivo" placeholder="Motivo da correção (obrigatório)" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-size:13px;margin-bottom:8px;background:var(--surface);color:var(--ink);" />` : ''}
         <div style="display:flex;gap:6px;">
           <button id="btn-guardar-edit" class="btn primary small" style="flex:1;">Guardar correcção</button>
           <button id="btn-cancelar-edit" class="btn ghost small">Cancelar</button>
@@ -3578,20 +3580,41 @@ function viewProducao(){
     editArea.querySelector('#btn-cancelar-edit').onclick = ()=>{ edicaoNum = null; renderEdicao(); };
     const btnAnular = editArea.querySelector('#btn-anular-bloco');
     if(btnAnular){
-      btnAnular.onclick = ()=>{
+      btnAnular.onclick = async ()=>{
         if(!confirm(`Anular o bloco ${b.numero}?`)) return;
+        if(servidorLog()){
+          const ew = editArea.querySelector('#edit-warn'); const motivo = (editArea.querySelector('#edit-motivo').value||'').trim();
+          if(!motivo){ ew.textContent = 'Indica o motivo da anulação.'; ew.style.display='block'; return; }
+          const r = await corrigirNoServidor({ numero:b.numero, motivo, anular:true });
+          if(r.erro){ ew.textContent = r.erro; ew.style.display='block'; return; }
+          if(window.bfSincronizar) await window.bfSincronizar(false);
+          if(window.celebrar) window.celebrar('Bloco anulado', `Bloco ${b.numero}`); return;
+        }
         registarAlteracao(b, 'estado', b.estado, 'anulado');
         b.estado = 'anulado'; b.local = 'Mingue (anulado)';
         showToast(`Bloco ${b.numero} anulado.`, 'ok');
         renderEdicao(); renderRecent();
       };
     }
-    editArea.querySelector('#btn-guardar-edit').onclick = ()=>{
-      const novoNum = numEditavel ? editArea.querySelector('#edit-num').value.trim() : b.numero;
+    editArea.querySelector('#btn-guardar-edit').onclick = async ()=>{
+      const novoNum = numEdUI ? editArea.querySelector('#edit-num').value.trim() : b.numero;
       const m = lerMedidasEdit();
       const novoProc = editArea.querySelector('#edit-proc').value.trim().toUpperCase() || null;
       const ewarn = editArea.querySelector('#edit-warn');
       ewarn.style.display = 'none';
+      if(servidorLog()){
+        const motivo = (editArea.querySelector('#edit-motivo').value||'').trim();
+        const p = { numero:b.numero, motivo };
+        if(m && (m.compM!==b.compM || m.altM!==b.altM || m.largM!==b.largM)){ p.comp = m.compM; p.alt = m.altM; p.larg = m.largM; }
+        if(novoProc !== b.processo) p.processo = novoProc || '';
+        if(tipoCargaEdit !== (b.tipoCarga||'granel')) p.tipo_carga = tipoCargaEdit;
+        if(Object.keys(p).length <= 2){ ewarn.textContent = 'Nada foi alterado.'; ewarn.style.display='block'; return; }
+        if(!motivo){ ewarn.textContent = 'Indica o motivo da correção.'; ewarn.style.display='block'; return; }
+        const r = await corrigirNoServidor(p);
+        if(r.erro){ ewarn.textContent = r.erro; ewarn.style.display='block'; return; }
+        if(window.bfSincronizar) await window.bfSincronizar(false);
+        if(window.celebrar) window.celebrar('Correção gravada', `Bloco ${b.numero}`); return;
+      }
       if(!novoNum){ ewarn.textContent = 'O número não pode ficar vazio.'; ewarn.style.display='block'; return; }
       if(novoNum !== b.numero && STATE.blocos.some(x=>x.numero===novoNum)){ ewarn.textContent = `Já existe um bloco ${novoNum}.`; ewarn.style.display='block'; return; }
       let mudou = false;
@@ -5233,6 +5256,12 @@ function viewSala(){
   return el;
 }
 
+function servidorLog(){ return !!(window.sb && window.BF_USER && ['admin','logistica','producao'].includes(window.BF_USER.papel)); }
+async function corrigirNoServidor(p){
+  if(navigator.onLine===false) return { erro:'Sem rede — tenta quando tiveres ligação.' };
+  try{ const {data,error} = await window.sb.rpc('corrigir_bloco', { p }); if(error) throw error; return data || {}; }
+  catch(e){ return { erro:'Não gravou no servidor: '+(e.message||e) }; }
+}
 function importarLiberacao(texto, ref, modo){
   STATE.listasExportacao = STATE.listasExportacao || [];
   const nums = [...new Set(String(texto).split(/[\s,;]+/).filter(x=>/^[A-Za-z0-9-]+$/.test(x)))];
@@ -5723,9 +5752,26 @@ function viewLogistica(){
         <div id="lib-hist"></div>
       </div>`;
     const res = content.querySelector('#lib-res');
-    const acao = modo => {
+    const acao = async modo => {
       const txt = content.querySelector('#lib-txt').value;
       if(!txt.trim()){ res.innerHTML = '<p style="font-size:12.5px;color:var(--rust);">Cola pelo menos um número de bloco.</p>'; return; }
+      if(servidorLog()){
+        const nums = [...new Set(String(txt).split(/[\s,;]+/).filter(x=>/^[A-Za-z0-9-]+$/.test(x)))];
+        const ref = content.querySelector('#lib-ref').value.trim() || 'Lista sem referência';
+        if(navigator.onLine===false){ res.innerHTML = '<p style="font-size:12.5px;color:var(--rust);">Sem rede — tenta quando tiveres ligação.</p>'; return; }
+        res.innerHTML = '<p style="font-size:12.5px;color:var(--ink-mute);">A enviar…</p>';
+        try{
+          const {data,error} = await window.sb.rpc('aplicar_liberacao', { p_ref: ref, p_modo: modo, p_blocos: nums });
+          if(error) throw error;
+          if(data && data.erro){ res.innerHTML = `<p style="font-size:12.5px;color:var(--rust);">${data.erro}</p>`; return; }
+          if(window.bfSincronizar) await window.bfSincronizar(false);
+          const nf = data.nao_encontrados || [];
+          const alvo = document.getElementById('lib-res');
+          if(alvo) alvo.innerHTML = `<p style="font-size:12.5px;margin:0;color:var(--moss);font-weight:600;">${data.aplicados} bloco(s) ${modo==='liberar'?'liberado(s)':'com liberação retirada'} · ${data.ja_estava||0} já estavam assim · ${nf.length} não encontrado(s)${nf.length?(': '+nf.slice(0,12).join(', ')+(nf.length>12?'…':'')):''}</p>`;
+          if(window.celebrar && data.aplicados) window.celebrar(modo==='liberar' ? 'Blocos liberados' : 'Liberação retirada', `${data.aplicados} bloco(s) · ${ref}`);
+        }catch(e){ res.innerHTML = `<p style="font-size:12.5px;color:var(--rust);">Não gravou no servidor: ${String(e.message||e).replace(/</g,'&lt;')}</p>`; }
+        return;
+      }
       importarLiberacao(txt, content.querySelector('#lib-ref').value.trim(), modo);
       renderLiberacaoSec(content);
       const r = STATE.listasExportacao[0];
@@ -6012,6 +6058,7 @@ function viewLogistica(){
           <p style="font-size:11.5px;color:var(--ink-mute);margin:0 0 8px;">Cliente (herdado): <strong style="color:var(--ink-soft);">${clienteActual || '—'}</strong></p>
           <p class="section-title">Contentor</p>
           <input id="correcao-contentor" value="${b.contentor||''}" placeholder="Ex: CT-1042" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-size:13px;font-family:var(--mono);margin-bottom:10px;background:var(--surface);color:var(--ink);" />
+          ${servidorLog() ? `<input id="correcao-motivo" placeholder="Motivo da correção (obrigatório)" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-size:13px;margin-bottom:8px;background:var(--surface);color:var(--ink);" /><p id="correcao-warn" style="font-size:11.5px;margin:0 0 8px;display:none;color:var(--rust);"></p>` : ''}
           <div style="display:flex;gap:6px;">
             <button id="btn-guardar-correcao" class="btn primary small" style="flex:1;">Guardar</button>
             <button id="btn-cancelar-correcao" class="btn ghost small">Cancelar</button>
@@ -6050,16 +6097,38 @@ function viewLogistica(){
       correcaoArea.querySelector('#btn-cancelar-correcao').onclick = ()=>{ logCorrecaoNum=null; render(); };
       const btnAnularLog = correcaoArea.querySelector('#btn-anular-log');
       if(btnAnularLog){
-        btnAnularLog.onclick = ()=>{
+        btnAnularLog.onclick = async ()=>{
           if(!confirm(`Anular o bloco ${b.numero}?`)) return;
+          if(servidorLog()){
+            const warn = correcaoArea.querySelector('#correcao-warn'); const motivo = (correcaoArea.querySelector('#correcao-motivo').value||'').trim();
+            if(!motivo){ warn.textContent = 'Indica o motivo da anulação.'; warn.style.display='block'; return; }
+            const r = await corrigirNoServidor({ numero:b.numero, motivo, anular:true });
+            if(r.erro){ warn.textContent = r.erro; warn.style.display='block'; return; }
+            if(window.bfSincronizar) await window.bfSincronizar(false);
+            if(window.celebrar) window.celebrar('Bloco anulado', `Bloco ${b.numero}`); return;
+          }
           b.historicoLogistica = b.historicoLogistica || [];
           b.historicoLogistica.push({ campo:'estado', de:b.estado, para:'anulado', quando:agoraISO()+' '+nowStr() });
           b.estado = 'anulado'; render();
         };
       }
-      correcaoArea.querySelector('#btn-guardar-correcao').onclick = ()=>{
+      correcaoArea.querySelector('#btn-guardar-correcao').onclick = async ()=>{
         const novoProcesso = inpProc.value.trim().toUpperCase() || null;
         const novoContentor = correcaoArea.querySelector('#correcao-contentor').value.trim() || null;
+        if(servidorLog()){
+          const warn = correcaoArea.querySelector('#correcao-warn'); warn.style.display = 'none';
+          const motivo = (correcaoArea.querySelector('#correcao-motivo').value||'').trim();
+          const p = { numero:b.numero, motivo };
+          if(novoLocal !== b.local) p.local = novoLocal;
+          if(novoProcesso !== b.processo) p.processo = novoProcesso || '';
+          if(novoContentor !== b.contentor) p.contentor = novoContentor || '';
+          if(Object.keys(p).length <= 2){ warn.textContent = 'Nada foi alterado.'; warn.style.display='block'; return; }
+          if(!motivo){ warn.textContent = 'Indica o motivo da correção.'; warn.style.display='block'; return; }
+          const r = await corrigirNoServidor(p);
+          if(r.erro){ warn.textContent = r.erro; warn.style.display='block'; return; }
+          if(window.bfSincronizar) await window.bfSincronizar(false);
+          if(window.celebrar) window.celebrar('Correção gravada', `Bloco ${b.numero}`); return;
+        }
         b.historicoLogistica = b.historicoLogistica || [];
         let mudou = false;
         if(novoLocal !== b.local){ b.historicoLogistica.push({ campo:'localização', de:b.local, para:novoLocal, quando:agoraISO()+' '+nowStr() }); b.local = novoLocal; b.divergencia = false; mudou = true; }
@@ -6298,7 +6367,7 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
     emSync = true;
     if(!auto) aviso('⏳ A atualizar…');
     try{
-      const [bl,pr,cl,mo,ma,gu,gb] = await Promise.all([ler('blocos','numero'),ler('processos','codigo'),ler('clientes','codigo'),ler('motoristas','nome'),ler('maquinistas','nome'),ler('guias','registado_em,id'),ler('guia_blocos','guia_id,bloco')]);
+      const [bl,pr,cl,mo,ma,gu,gb,li] = await Promise.all([ler('blocos','numero'),ler('processos','codigo'),ler('clientes','codigo'),ler('motoristas','nome'),ler('maquinistas','nome'),ler('guias','registado_em,id'),ler('guia_blocos','guia_id,bloco'),ler('liberacoes','quando,id')]);
       STATE.blocos = bl.map(blocoDoServidor);
       /* guias do servidor -> lista de confirmações, números usados e dados da viagem dos blocos em trânsito */
       const blocosDaGuia = new Map(); gb.forEach(r=>{ if(!blocosDaGuia.has(r.guia_id)) blocosDaGuia.set(r.guia_id, []); blocosDaGuia.get(r.guia_id).push(r.bloco); });
@@ -6318,6 +6387,8 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
           pesoKg: blocos.reduce((s,n)=>s+(pesoDe.get(n)||0),0), divergente:false, desvio:null, posto:g.posto||null, registadoPor:g.registado_por||null };
       });
       STATE.guias = lista;
+      STATE.listasExportacao = li.slice().sort((a,b)=> new Date(b.quando)-new Date(a.quando)).map(x=>{ const t = new Date(x.quando); const n = (x.blocos||[]).length;
+        return { ref:x.ref, modo:x.modo, quando: t.toLocaleDateString('en-CA',{timeZone:'Africa/Luanda'})+' '+t.toLocaleTimeString('pt-PT',{timeZone:'Africa/Luanda',hour:'2-digit',minute:'2-digit',hour12:false}), total:(x.pedidos!=null?x.pedidos:n), aplicados:n, jaEstava:(x.ja_estava||0), naoEncontrados:(x.nao_encontrados||[]) }; });
       const usadas = lista.filter(g=> g.numero!=null && (g.tipo==='saida' || (g.tipo==='entrada' && !POSTOS_REDE.includes(g.de)))).map(g=>g.numero);
       STATE.guiasUsadas = new Set(usadas);
       STATE.ultimaGuia = usadas.length ? Math.max.apply(null, usadas) : 0;
