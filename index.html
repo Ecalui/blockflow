@@ -3024,11 +3024,49 @@ function abrirRelatorio({ titulo, subtitulo, corpo, landscape }){
 }
 
 /* ---------- Rotas ---------- */
-function relRotas(data){
-  const guias = STATE.guias.filter(g => g.data === data && (g.tipo==='saida' || g.tipo==='entrada'));
+/* uma viagem conta uma só vez: pela saída do posto de origem; se a origem é uma pedreira (sem saída), pela entrada */
+const ELOS_ORDEM = ['Mingue → Chibia','Chibia → Arimba','Chibia → Caraculo','Chibia → Saco-Mar','Chibia → Sogester','Arimba → Caraculo','Arimba → Sogester','Caraculo → Saco-Mar','Saco-Mar → Sogester'];
+function ehViagem(g){ return g.tipo==='saida' || (g.tipo==='entrada' && !POSTOS.includes(g.de)); }
+function elosExistentes(){
+  const set = [...new Set(STATE.guias.filter(ehViagem).map(g=>g.de+' → '+g.para))];
+  return [...ELOS_ORDEM.filter(e=>set.includes(e)), ...set.filter(e=>!ELOS_ORDEM.includes(e)).sort()];
+}
+function relPeriodoTxt(ini, fim){ return (!fim || ini===fim) ? relDataLonga(ini) : relDataLonga(ini)+' a '+relDataLonga(fim); }
+function relElo(ini, fim, elo){
+  const [de, para] = elo.split(' → ');
+  const viagens = STATE.guias.filter(g => ehViagem(g) && g.de===de && g.para===para && g.data>=ini && g.data<=fim)
+    .sort((a,b)=> (a.data+' '+a.hora).localeCompare(b.data+' '+b.hora));
+  if(!viagens.length) return { corpo:`<p style="font-size:11pt;color:#736E5E;">Sem viagens no elo ${elo} em ${relPeriodoTxt(ini,fim)}.</p>`, landscape:true };
+  const pedreira = !POSTOS.includes(de);
+  const chegadas = viagens.map(g=>{
+    if(pedreira) return { chegaram: g.blocos.slice(), quando: g.data+' '+g.hora, destino: g.para };
+    const e = STATE.guias.filter(x=>x.tipo==='entrada' && x.de===g.de && x.numero===g.numero);
+    const conf = new Set(); e.forEach(x=>(x.blocos||[]).forEach(n=>conf.add(n)));
+    const ult = e.slice().sort((a,b)=>(b.data+b.hora).localeCompare(a.data+a.hora))[0];
+    return { chegaram: g.blocos.filter(n=>conf.has(n)), quando: ult ? (ult.data+' '+ult.hora) : null, destino: ult ? ult.para : g.para };
+  });
+  let tB=0, tC=0, tKg=0; const M={};
+  viagens.forEach((g,i)=>{ const c=chegadas[i]; tB+=g.blocos.length; tC+=c.chegaram.length; tKg+=(g.pesoKg||0);
+    const m=g.motorista||'—'; M[m]=M[m]||{v:0,b:0,kg:0}; M[m].v++; M[m].b+=g.blocos.length; M[m].kg+=(g.pesoKg||0); });
+  const emTransito = tB - tC;
+  let corpo = `<h2>Elo ${elo} · ${relPeriodoTxt(ini,fim)}</h2>
+    <table><thead><tr><th>Viagens</th><th>Blocos saídos</th><th>Confirmados à chegada</th><th>Ainda a caminho</th><th>Toneladas</th></tr></thead>
+    <tbody><tr class="tot"><td class="n">${viagens.length}</td><td class="n">${tB}</td><td class="n">${tC}</td><td class="n">${emTransito}</td><td class="n">${formatarTonTotal(tKg)}</td></tr></tbody></table>`;
+  corpo += `<h2>Por motorista</h2><table><thead><tr><th>Motorista</th><th>Viagens</th><th>Blocos</th><th>Toneladas</th></tr></thead><tbody>` +
+    Object.entries(M).sort((a,b)=>b[1].b-a[1].b).map(([m,v])=>`<tr><td>${m}</td><td class="n">${v.v}</td><td class="n">${v.b}</td><td class="n">${formatarTonTotal(v.kg)}</td></tr>`).join('') + `</tbody></table>`;
+  corpo += `<h2>Viagens</h2><table><thead><tr><th>Data · hora</th><th>Guia</th><th>Motorista</th><th>Viatura</th><th>Blocos</th><th>Nº dos blocos</th><th>Toneladas</th><th>Chegada</th></tr></thead><tbody>` +
+    viagens.map((g,i)=>{ const c=chegadas[i]; const falta=g.blocos.length-c.chegaram.length;
+      const chegTxt = c.quando ? (relDataLonga(c.quando.slice(0,10))+' '+c.quando.slice(11) + (c.destino!==g.para?` (desviada para ${c.destino})`:'') + (falta>0?` · faltam ${falta}`:'')) : 'a caminho';
+      return `<tr><td>${relDataLonga(g.data)} ${g.hora||''}</td><td class="n">${g.numero??'—'}</td><td>${g.motorista||'—'}</td><td>${g.viatura||'—'}</td><td class="n">${g.blocos.length}</td><td style="font-size:8.5pt;">${g.blocos.join(', ')}</td><td class="n">${formatarTonTotal(g.pesoKg||0)}</td><td>${chegTxt}</td></tr>`; }).join('') + `</tbody></table>`;
+  return { corpo, landscape:true };
+}
+function relRotas(ini, fim){
+  fim = fim || ini;
+  const guias = STATE.guias.filter(g => g.data >= ini && g.data <= fim && ehViagem(g));
   if(guias.length===0){
-    return { corpo: `<p style="font-size:11pt;color:#736E5E;">Sem movimentações registadas em ${relDataLonga(data)}.</p>`, landscape:true };
+    return { corpo: `<p style="font-size:11pt;color:#736E5E;">Sem movimentações registadas em ${relPeriodoTxt(ini,fim)}.</p>`, landscape:true };
   }
+  const data = ini;
   const rotasPreferidas = ['Chibia → Caraculo','Chibia → Arimba','Chibia → Saco-Mar','Chibia → Sogester','Arimba → Caraculo','Caraculo → Saco-Mar','Saco-Mar → Sogester'];
   const rotasExistentes = [...new Set(guias.map(g => g.de + ' → ' + g.para))];
   const rotas = [
@@ -3049,7 +3087,7 @@ function relRotas(data){
   const totaisRota = {};
   rotas.forEach(r => totaisRota[r] = { blocos:0, viagens:0 });
 
-  let corpo = `<h2>Resumo por motorista e rota · ${relDataLonga(data)}</h2>`;
+  let corpo = `<h2>Resumo por motorista e rota · ${relPeriodoTxt(ini,fim)}</h2>`;
   corpo += `<table><thead>
     <tr><th rowspan="2" style="min-width:150px;">Motorista</th>
       ${rotas.map(r => `<th colspan="2" style="text-align:center;">${r}</th>`).join('')}
@@ -5873,18 +5911,28 @@ function viewLogistica(){
     }
 
     /* 1. Rotas */
-    const c1 = card({ id:'rotas', titulo:'Rotas — Quantidades por elo', desc:'Diário. Matriz motorista × rota, com blocos, viagens e tonelagem. É o que vai para a Direcção.' });
+    const c1 = card({ id:'rotas', titulo:'Rotas — Quantidades por elo', desc:'Escolhe o período e, se quiseres, um elo. Sem elo: quadro geral motorista × rota (para a Direção). Com elo: resumo, motoristas e a lista de viagens com os blocos e a confirmação de chegada.' });
     cards.appendChild(c1);
     const campos1 = c1.querySelector('#campos-rotas');
-    const inp1 = document.createElement('input');
-    inp1.type = 'date'; inp1.value = hoje;
-    inp1.style.cssText = 'height:34px;border-radius:8px;border:1px solid var(--border-strong);padding:0 8px;font-size:13px;background:var(--surface);color:var(--ink);';
-    campos1.appendChild(document.createTextNode('Data: '));
-    campos1.appendChild(inp1);
-    criarChipsDias(c1.querySelector('#chips-rotas'), inp1);
+    const estiloInp = 'height:34px;border-radius:8px;border:1px solid var(--border-strong);padding:0 8px;font-size:13px;background:var(--surface);color:var(--ink);';
+    const inp1 = document.createElement('input'); inp1.type = 'date'; inp1.value = hoje; inp1.style.cssText = estiloInp;
+    const inp1b = document.createElement('input'); inp1b.type = 'date'; inp1b.value = hoje; inp1b.style.cssText = estiloInp;
+    const selElo = document.createElement('select'); selElo.style.cssText = estiloInp;
+    selElo.innerHTML = '<option value="">Todos os elos (quadro geral)</option>' + elosExistentes().map(e=>`<option value="${e}">${e}</option>`).join('');
+    campos1.appendChild(document.createTextNode('De: ')); campos1.appendChild(inp1);
+    campos1.appendChild(document.createTextNode(' até: ')); campos1.appendChild(inp1b);
+    campos1.appendChild(document.createTextNode(' Elo: ')); campos1.appendChild(selElo);
+    const proxyDia = { get value(){ return inp1.value; }, set value(v){ inp1.value = v; inp1b.value = v; } };
+    criarChipsDias(c1.querySelector('#chips-rotas'), proxyDia);
     c1.querySelector('#btn-rotas').onclick = ()=>{
-      const r = relRotas(inp1.value);
-      abrirRelatorio({ titulo:'Relatório de Rotas', subtitulo:'Blocos por motorista e elo · '+relDataLonga(inp1.value), corpo:r.corpo, landscape:r.landscape });
+      let ini = inp1.value, fim = inp1b.value || inp1.value; if(fim < ini){ const t = ini; ini = fim; fim = t; }
+      if(selElo.value){
+        const r = relElo(ini, fim, selElo.value);
+        abrirRelatorio({ titulo:'Relatório por Elo', subtitulo: selElo.value+' · '+relPeriodoTxt(ini,fim), corpo:r.corpo, landscape:r.landscape });
+      } else {
+        const r = relRotas(ini, fim);
+        abrirRelatorio({ titulo:'Relatório de Rotas', subtitulo:'Blocos por motorista e elo · '+relPeriodoTxt(ini,fim), corpo:r.corpo, landscape:r.landscape });
+      }
     };
 
     /* 2. Carregamento */
