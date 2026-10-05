@@ -3452,7 +3452,7 @@ function viewProducao(){
       <div id="sugestoes-processo"></div>
       <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;">
         <button id="btn-novo-processo" class="btn ghost small">+ registar processo novo</button>
-        <button id="btn-stock-livre" class="btn ghost small" style="border-color:var(--amber);color:#8A5E0B;">Sem processo (excepção)</button>
+        <button id="btn-stock-livre" class="btn ghost small" style="border-color:var(--amber);color:#8A5E0B;">Sem processo (até à Chibia)</button>
       </div>`;
     const busca = processoArea.querySelector('#busca-processo');
     const sug = processoArea.querySelector('#sugestoes-processo');
@@ -3651,7 +3651,7 @@ function viewProducao(){
     warn.style.display = 'none';
     if(!num){ warn.textContent = 'Indica o número do bloco.'; warn.style.display='block'; return; }
     if(STATE.blocos.some(x=>x.numero===num)){ warn.textContent = `O bloco ${num} já existe no sistema.`; warn.style.display = 'block'; return; }
-    if(!processoSel){ warn.textContent = 'Escolhe o processo (ou marca "Sem processo" se for excepção).'; warn.style.display = 'block'; return; }
+    if(!processoSel){ warn.textContent = 'Escolhe o processo, ou marca "Sem processo" (o bloco pode ir até à Chibia sem processo).'; warn.style.display = 'block'; return; }
     const m = lerMedidas();
     if(!m){ warn.textContent = 'Preenche as medidas (Comp × Alt × Larg) para o peso ser calculado e gravado.'; warn.style.display = 'block'; return; }
     /* --- Ligado ao Supabase: grava no servidor (registar_bloco) e só confirma se o servidor aceitar --- */
@@ -4317,7 +4317,7 @@ function viewConferente(){
           const row = document.createElement('label');
           row.className = 'row';
           row.style.cssText = 'cursor:pointer;opacity:'+(cheio?'0.4':'1')+';';
-          const notaProc = b.processo ? '' : ' · ⚠ sem processo';
+          const notaProc = b.processo ? '' : ' · sem processo';
           row.innerHTML = `<span class="num">${marcado?'☑':'☐'} Bloco ${b.numero}${notaProc}</span><span class="meta">${b.pesoKg?formatarTon(b.pesoKg)+' · ':''}${b.processo?b.processo:'sem processo'}</span>`;
           row.onclick = ()=>{
             if(marcado){ formState.selecionados = formState.selecionados.filter(n=>n!==b.numero); }
@@ -4405,7 +4405,7 @@ function viewConferente(){
             if(!b){ aplicarEstadoCampo('erro'); info.style.color = 'var(--rust)'; info.textContent = '⚠ Bloco não existe no registo.'; return; }
             if(b.estado==='anulado'){ aplicarEstadoCampo('erro'); info.style.color = 'var(--rust)'; info.textContent = '⊘ Bloco anulado — não pode mover.'; return; }
             const cliente = clienteDeBloco(b) || '?';
-            if(!b.processo){ aplicarEstadoCampo('aviso'); info.style.color = 'var(--amber)'; info.textContent = `⚠ Sem processo atribuído — corrige antes de mover.`; return; }
+            if(!b.processo && !entrada && postoAtivo==='Chibia'){ aplicarEstadoCampo('aviso'); info.style.color = 'var(--amber)'; info.textContent = `⚠ Sem processo — não pode sair da Chibia. Pede à Logística (Sala · GERAL).`; return; }
             if(b.local && b.local !== postoAtivo){ aplicarEstadoCampo('erro'); info.style.color = 'var(--rust)'; info.textContent = `${b.processo} · ${cliente} — está em ${b.local}.`; return; }
             aplicarEstadoCampo('ok');
             info.style.color = 'var(--moss)';
@@ -4490,8 +4490,10 @@ function viewConferente(){
         return b;
       });
       if(erros.length>0){ showToast(erros[0] + (erros.length>1 ? ` (+${erros.length-1})` : ''), 'err'); return; }
-      const semProcesso = resolvidos.filter(b=> b && !b.processo);
-      if(semProcesso.length>0){ const nums = semProcesso.map(b=>b.numero).join(', '); showToast(`Bloco(s) ${nums} sem processo — corrige antes de mover.`, 'err'); return; }
+      /* Portão da Chibia: até lá os blocos andam sem processo; para SAIR da Chibia precisam dele (o contentor atribui-o na própria saída) */
+      const portaoChibia = !entrada && !embarque && postoAtivo==='Chibia' && !(formState.tipoSaidaChibia==='contentor' && (formState.processoContentor||'').trim());
+      const semProcesso = portaoChibia ? resolvidos.filter(b=> b && !b.processo) : [];
+      if(semProcesso.length>0){ const nums = semProcesso.map(b=>b.numero).join(', '); showToast(`Bloco(s) ${nums} sem processo — não podem sair da Chibia. A Logística atribui o processo (Sala · GERAL).`, 'err'); return; }
       /* --- Ligado ao Supabase: o servidor valida e grava (quem = login, quando = hora do servidor) --- */
       let filaOffline = false;
       if(window.sb && window.BF_USER && ['admin','conferente'].includes(window.BF_USER.papel)){
@@ -5188,9 +5190,10 @@ const SALA_COR = { 'Chibia':'#2F5470','Arimba':'#3E6E4E','Caraculo':'#8A5E0B','S
 function viewSala(){
   const el = document.createElement('div');
   el.className = 'panel';
-  const procs = STATE.processos.map(p=>p.codigo);
+  const procs = ['GERAL'].concat(STATE.processos.map(p=>p.codigo));
   if(!salaProc || !procs.includes(salaProc)) salaProc = procs[0];
-  const p = STATE.processos.find(x=>x.codigo===salaProc);
+  const geral = salaProc==='GERAL';
+  const p = STATE.processos.find(x=>x.codigo===salaProc) || { meta:null };
   const bl = STATE.blocos.filter(b=>b.processo===salaProc);
   const fin = b=>ESTADOS_FINAIS_PORTO.includes(b.estado);
   const cont = f=>bl.filter(f).length;
@@ -5202,15 +5205,15 @@ function viewSala(){
   const st = (l,v)=>`<div class="stat"><p class="label">${l}</p><p class="value">${v}</p></div>`;
   el.innerHTML = `
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;" id="sala-procs"></div>
-    <p class="section-title">Ponto de situação · ${salaProc} <span style="font-weight:400;color:var(--ink-mute);">— meta ${p.meta||'—'} blocos</span></p>
+    ${geral ? `<p class="section-title">Geral · avisos e coordenação <span style="font-weight:400;color:var(--ink-mute);">— postos e Logística falam aqui; os avisos automáticos (por exemplo, blocos sem processo na Chibia) também</span></p>` : `<p class="section-title">Ponto de situação · ${salaProc} <span style="font-weight:400;color:var(--ink-mute);">— meta ${p.meta||'—'} blocos</span></p>
     <div class="grid g3" style="margin-bottom:10px;">${st('No cais',noCais)}${st('Embarcados',embarc)}${st('Em trânsito',transito)}${st('Faltam',faltam)}${st('Liberados por mover',bl.filter(b=>b.liberado&&!fin(b)).length)}</div>
-    <p style="font-size:12px;color:var(--ink-soft);margin:0 0 14px;">Por hub: ${Object.keys(porHub).length?Object.entries(porHub).map(([h,n])=>h+' '+n).join(' · '):'—'}</p>
+    <p style="font-size:12px;color:var(--ink-soft);margin:0 0 14px;">Por hub: ${Object.keys(porHub).length?Object.entries(porHub).map(([h,n])=>h+' '+n).join(' · '):'—'}</p>`}
     <p class="section-title">Conversa <span style="font-weight:400;color:var(--ink-mute);">— registo da operação: mensagens com data, hora e função; não se editam nem apagam</span></p>
     <div id="sala-legenda" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;"></div>
     <div id="sala-msgs" style="max-height:min(55vh,480px);min-height:160px;overflow:auto;margin-bottom:10px;"></div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;">
       <select id="sala-autor" style="height:38px;border-radius:8px;border:1px solid var(--border-strong);background:var(--surface);color:var(--ink);"></select>
-      <input id="sala-txt" placeholder="Escrever para todos neste processo…" style="flex:1;min-width:150px;height:38px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-size:13px;background:var(--surface);color:var(--ink);" />
+      <input id="sala-txt" placeholder="${geral ? 'Escrever para todos…' : 'Escrever para todos neste processo…'}" style="flex:1;min-width:150px;height:38px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-size:13px;background:var(--surface);color:var(--ink);" />
       <button class="btn success" id="sala-env" style="height:38px;">Enviar</button>
     </div>`;
   const pw = el.querySelector('#sala-procs');
@@ -5225,7 +5228,7 @@ function viewSala(){
   const mw = el.querySelector('#sala-msgs');
   mw.style.cssText += 'display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;';
   const msgs = (STATE.sala||[]).filter(m=>m.processo===salaProc);
-  if(!msgs.length) mw.innerHTML = '<p style="font-size:12.5px;color:var(--ink-mute);margin:0;">Sem mensagens neste processo ainda.</p>';
+  if(!msgs.length) mw.innerHTML = '<p style="font-size:12.5px;color:var(--ink-mute);margin:0;">Sem mensagens '+(geral?'na sala Geral':'neste processo')+' ainda.</p>';
   if(window.BF_SALA_ERRO) mw.insertAdjacentHTML('afterbegin', '<p style="font-size:12px;color:var(--rust);margin:0 0 6px;">Não foi possível ler as mensagens do servidor: '+String(window.BF_SALA_ERRO).replace(/</g,'&lt;')+'</p>');
   let dia = '';
   msgs.forEach(m=>{
@@ -5284,7 +5287,7 @@ function linhaProblema(b){
   const row = document.createElement('div');
   row.className = 'row';
   const c = clienteDeBloco(b);
-  const motivo = !b.processo ? '⚠ sem processo atribuído — não pode mover'
+  const motivo = !b.processo ? '⚠ sem processo — não pode sair da Chibia'
     : b.estado==='anulado' ? '⊘ anulado'
     : b.estado==='sem_producao' ? 'sem registo de produção'
     : b.estado==='falta' ? 'vendido sem localização confirmada'
@@ -5417,16 +5420,19 @@ function viewLogistica(){
       </div>
     `;
     const pend = content.querySelector('#pendentes');
-    if(semProcessoN>0){
+    const PARQUES_REDE = ['Chibia','Arimba','Caraculo','Saco-Mar','Sogester'];
+    const semProcParques = STATE.blocos.filter(b=>!b.processo && b.estado!=='anulado' && PARQUES_REDE.includes(parqueDe(b)));
+    const semProcChibia = semProcParques.filter(b=>parqueDe(b)==='Chibia').length;
+    if(semProcParques.length>0){
       const aviso = document.createElement('div');
       aviso.className = 'row';
       aviso.style.cssText = 'border-color:var(--amber);cursor:pointer;background:var(--amber-bg);';
-      aviso.innerHTML = `<span class="num" style="font-family:var(--sans);font-weight:600;">${semProcessoN} bloco(s) sem processo atribuído</span><span class="meta" style="color:#8A5E0B;">não podem mover — toca para resolver</span>`;
+      aviso.innerHTML = `<span class="num" style="font-family:var(--sans);font-weight:600;">${semProcParques.length} bloco(s) sem processo nos parques</span><span class="meta" style="color:#8A5E0B;">${semProcChibia ? semProcChibia+' na Chibia não podem sair — ' : ''}toca para resolver</span>`;
       aviso.onclick = ()=>{ logSeccao='processo'; render(); };
       pend.appendChild(aviso);
     }
     const problemBlocos = STATE.blocos.filter(b=>b.estado==='falta' || b.estado==='sem_producao' || b.semRegistoOrigem || b.divergencia);
-    if(problemBlocos.length===0 && semProcessoN===0) pend.innerHTML = '<p style="font-size:12.5px;color:var(--ink-mute);">Sem pendências neste momento.</p>';
+    if(problemBlocos.length===0 && semProcParques.length===0) pend.innerHTML = '<p style="font-size:12.5px;color:var(--ink-mute);">Sem pendências neste momento.</p>';
     else problemBlocos.forEach(b=> pend.appendChild(linhaProblema(b)));
     const qc = content.querySelector('#quase-completos');
     const grupos = processoDe();
