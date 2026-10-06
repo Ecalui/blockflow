@@ -84,6 +84,24 @@
   .elo-tile.destaque .nome{color:#2C4F37;}
 
   .section-title{font-size:12px;color:var(--ink-soft);margin:0 0 8px;font-weight:600;}
+  .passo-n{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--border-strong);color:#fff;font-size:12px;font-weight:700;margin-right:8px;vertical-align:middle;}
+  .section-title.passo-ok{color:var(--ink-mute);font-weight:500;}
+  .section-title.passo-ok .passo-n{background:var(--moss);}
+  .section-title.passo-atual{color:var(--ink);font-size:13.5px;background:var(--amber-bg);border-left:4px solid var(--slate);border-radius:6px;padding:7px 8px;}
+  .section-title.passo-atual .passo-n{background:var(--slate);}
+  .section-title.passo-flash{animation:passoFlash 1.2s ease 1;}
+  @keyframes passoFlash{0%,100%{box-shadow:none}30%,70%{box-shadow:0 0 0 4px rgba(176,122,18,.45);}}
+  #passos-barra{position:sticky;top:0;z-index:5;background:var(--surface);padding:8px 0 10px;margin:0 0 10px;}
+  #passos-barra .passos-txt{font-size:13px;color:var(--ink);margin-bottom:6px;}
+  #passos-barra .passos-seg{display:flex;gap:4px;}
+  #passos-barra .passos-seg i{flex:1;height:6px;border-radius:3px;background:var(--border-strong);opacity:.45;}
+  #passos-barra .passos-seg i.ok{background:var(--moss);opacity:1;}
+  #passos-barra .passos-seg i.atual{background:var(--slate);opacity:1;}
+  .passo-resumo{display:flex;align-items:center;gap:10px;border:1px solid var(--moss);background:var(--moss-bg);border-radius:8px;padding:8px 10px;margin:0 0 10px;}
+  .passo-resumo .passo-n{background:var(--moss);margin:0;flex:none;}
+  .passo-resumo-txt{flex:1;min-width:0;}
+  .passo-resumo-lbl{font-size:11px;color:var(--ink-mute);}
+  .passo-resumo-val{font-size:13.5px;font-weight:600;color:var(--ink);overflow-wrap:anywhere;}
   .bar-outer{height:8px;background:var(--surface-2);border-radius:4px;overflow:hidden;border:1px solid var(--border);}
   .bar-inner{height:100%;background:var(--slate);}
   .bar-inner.warn{background:var(--amber);}
@@ -4007,7 +4025,131 @@ function viewConferente(){
     btnS.className = confMode==='saida' ? 'on-saida' : '';
     renderForm(); renderRecent();
   }
-  function renderForm(){
+  function renderForm(){ renderFormBase(); try{ aplicarPassos(); }catch(e){ console.warn('passos', e); } }
+  let ultimoPassoVisto = null;
+  let passoEditar = null; /* passo reaberto pelo botão "alterar": { id, sig, modo } */
+  const PASSOS_COLAPSAVEIS = ['origem','guiaSel','pessoa','destino','missao'];
+  /* Guia de passos: numera as secções, destaca a seguinte, colapsa as já feitas numa linha, mostra a barra de progresso e usa o botão final (fixo no fundo) para dizer o que falta */
+  function aplicarPassos(){
+    const area = phone.querySelector('#form-area'); if(!area) return;
+    const entrada = confMode==='entrada';
+    const titulos = [...area.querySelectorAll('.section-title[data-passo]')];
+    if(!titulos.length) return;
+    const guiaNum = parseInt(formState.guia, 10);
+    const comb = formState.modal==='comboio';
+    const ROT = { origem:'Escolher a proveniência', guiaSel:'Escolher a guia', pessoa: comb?'Maquinista e locomotiva':'Motorista e matrícula', carruagem:'Carruagem', destino:'Escolher o destino', tipoSaida:'Tipo de saída', contentor:'Nº do contentor', missao:'Escolher a missão / navio', guia:'Nº da guia', selecionados:'Marcar os blocos que chegaram', blocos:'Escrever os blocos' };
+    const ACT = { origem:'escolher a proveniência', guiaSel:'escolher a guia', pessoa: comb?'escolher o maquinista':'escolher o motorista', carruagem:'indicar a carruagem', destino:'escolher o destino', tipoSaida:'escolher o tipo de saída', contentor:'indicar o nº do contentor', missao:'escolher o navio', guia:'escrever o nº da guia', selecionados:'marcar os blocos que chegaram', blocos:'escrever os blocos' };
+    const LABC = { origem:'Proveniência', guiaSel:'Guia a confirmar', pessoa: comb?'Maquinista / locomotiva':'Motorista / viatura', destino: (postoAtivo==='Sogester' && confMode==='saida') ? 'Situação do bloco' : 'Destino', missao:'Missão / navio' };
+    const SIG = { origem:()=>formState.origem, guiaSel:()=>formState.guiaSel, pessoa:()=>formState.nome, destino:()=>formState.destino, missao:()=>formState.missaoId };
+    const OK = {
+      origem: ()=>!!formState.origem,
+      guiaSel: ()=>!!formState.guiaSel,
+      pessoa: ()=>!!area.querySelector('#btn-troca-pessoa') || (!!formState.nome && !!String(formState.matricula||'').trim()),
+      carruagem: ()=>!!String(formState.carruagem||'').trim(),
+      destino: ()=>!!formState.destino,
+      tipoSaida: ()=>!!formState.tipoSaidaChibia,
+      contentor: ()=>!!String(formState.numContentor||'').trim(),
+      missao: ()=>!!formState.missaoId,
+      guia: ()=>{ const g = parseInt(formState.guia, 10); return g>0 && !STATE.guiasUsadas.has(g); },
+      selecionados: ()=>(formState.selecionados||[]).length>0,
+      blocos: ()=>(formState.blocos||[]).map(x=>String(x).trim()).filter(Boolean).length>0,
+    };
+    /* o passo reaberto fecha sozinho quando o valor muda (ou quando se muda de modo) */
+    if(passoEditar){
+      const sg = SIG[passoEditar.id];
+      if(passoEditar.modo!==confMode || !sg || String(sg()||'')!==passoEditar.sig) passoEditar = null;
+    }
+    const passos = titulos.map(el=>({ el, id:el.dataset.passo, label:ROT[el.dataset.passo]||el.textContent, ok:(OK[el.dataset.passo]||(()=>true))() }));
+    const idxAtual = passos.findIndex(x=>!x.ok), atual = idxAtual>=0 ? passos[idxAtual] : null;
+    passos.forEach((x,i)=>{
+      const n = document.createElement('span'); n.className = 'passo-n'; n.textContent = x.ok ? '✓' : String(i+1); x.n = n;
+      x.el.insertBefore(n, x.el.firstChild);
+      if(x.ok) x.el.classList.add('passo-ok'); else if(x===atual) x.el.classList.add('passo-atual');
+      if(passoEditar && passoEditar.id===x.id) x.el.classList.add('passo-atual');
+    });
+    /* passos de escolha já feitos ficam numa linha verde com o valor e o botão "alterar" */
+    const resumo = x=>{
+      switch(x.id){
+        case 'origem': return formState.origem || '';
+        case 'guiaSel': { const v = viagemSelecionada(); return formState.guiaSel==='PRODUCAO' ? 'Produção' : (v && v.guia ? 'Guia '+v.guia : 'Guia escolhida'); }
+        case 'pessoa': return [formState.nome, formState.matricula].filter(Boolean).join(' · ');
+        case 'destino': { const b = area.querySelector('#destinos .btn.primary'); return b ? b.textContent : String(formState.destino||''); }
+        case 'missao': { const m = missaoPorId(formState.missaoId); return m ? m.navio : ''; }
+      }
+      return '';
+    };
+    passos.forEach(x=>{
+      if(!PASSOS_COLAPSAVEIS.includes(x.id) || !x.ok || x===atual) return;
+      if(x.id==='pessoa' && area.querySelector('#btn-troca-pessoa')) return;
+      if(passoEditar && passoEditar.id===x.id) return;
+      let n = x.el.nextElementSibling;
+      while(n && !n.classList.contains('section-title') && n.id!=='btn-confirmar' && !(n.tagName==='P' && /^Total:/.test(n.textContent||''))){
+        const seguinte = n.nextElementSibling; n.style.display = 'none'; n = seguinte;
+      }
+      const row = document.createElement('div'); row.className = 'passo-resumo';
+      row.innerHTML = '<span class="passo-n">✓</span><div class="passo-resumo-txt"><div class="passo-resumo-lbl"></div><div class="passo-resumo-val"></div></div><button type="button" class="btn ghost small">alterar</button>';
+      row.querySelector('.passo-resumo-lbl').textContent = LABC[x.id] || x.label;
+      row.querySelector('.passo-resumo-val').textContent = resumo(x);
+      row.querySelector('button').onclick = ()=>{ passoEditar = { id:x.id, sig:String(SIG[x.id]()||''), modo:confMode }; renderForm(); };
+      x.el.style.display = 'none'; x.el.after(row);
+    });
+    const total = Math.max(passos.length, entrada ? 3 : 0);
+    const barra = document.createElement('div'); barra.id = 'passos-barra';
+    area.insertBefore(barra, area.firstChild);
+    const btn = area.querySelector('#btn-confirmar');
+    const confirmarOriginal = btn ? btn.onclick : null;
+    const irPara = x=>{
+      x.el.scrollIntoView({ behavior:'smooth', block:'center' });
+      x.el.classList.add('passo-flash'); setTimeout(()=>x.el.classList.remove('passo-flash'), 1300);
+      const foco = { pessoa:'#input-busca-pessoa', guia:'#input-guia', carruagem:'#input-carruagem', contentor:'#input-contentor-chibia', blocos:'#blocos-inputs input, #blocos-inputs-porto input' }[x.id];
+      const f = foco && area.querySelector(foco); if(f) setTimeout(()=>f.focus({ preventScroll:true }), 400);
+    };
+    /* pintar(): recalcula o que falta e actualiza barra, números e botão SEM reconstruir o formulário (não tira o foco a quem está a escrever) */
+    const pintar = ()=>{
+      passos.forEach(x=>{ x.ok = (OK[x.id]||(()=>true))(); });
+      const idx = passos.findIndex(x=>!x.ok), at = idx>=0 ? passos[idx] : null;
+      passos.forEach((x,i)=>{
+        if(x.n) x.n.textContent = x.ok ? '✓' : String(i+1);
+        x.el.classList.toggle('passo-ok', x.ok);
+        x.el.classList.toggle('passo-atual', (!x.ok && x===at) || (!!passoEditar && passoEditar.id===x.id));
+      });
+      barra.innerHTML = `<div class="passos-txt">${at ? `<strong>Passo ${idx+1} de ${total}</strong> · ${at.label}` : '<strong>✓ Tudo pronto</strong> · confirma em baixo'}</div><div class="passos-seg">${Array.from({length:total},(_,i)=>`<i class="${passos[i]&&passos[i].ok?'ok':(i===idx?'atual':'')}"></i>`).join('')}</div>`;
+      if(btn){
+        const falta = passos.filter(x=>!x.ok);
+        if(passoEditar){
+          btn.className = 'btn primary'; btn.style.cssText = 'width:100%;height:48px;font-size:14px;font-weight:600;';
+          btn.textContent = 'Guardar alteração';
+          btn.onclick = ()=>{ passoEditar = null; renderForm(); };
+        } else if(falta.length){
+          btn.className = 'btn ghost'; btn.style.cssText = 'width:100%;height:48px;font-size:14px;border:2px solid var(--amber);background:var(--amber-bg);color:#7A5209;font-weight:600;';
+          btn.textContent = `Falta: ${ACT[falta[0].id] || falta[0].label}`;
+          btn.onclick = ()=>{ pintar(); const f = passos.find(x=>!x.ok); if(f) irPara(f); else if(confirmarOriginal) confirmarOriginal(); };
+        } else {
+          const n = (entrada ? (formState.selecionados||[]).length : (formState.blocos||[]).map(x=>String(x).trim()).filter(Boolean).length);
+          btn.className = 'btn ' + (entrada?'success':'primary'); btn.style.cssText = 'width:100%;height:48px;font-size:14px;font-weight:600;';
+          btn.textContent = `✓ Confirmar ${entrada?'entrada':'saída'}${n?` · ${n} bloco(s)`:''}`;
+          btn.onclick = confirmarOriginal;
+        }
+        /* botão sempre visível no fundo do ecrã; a "moldura" da cor do fundo tapa o que passa por baixo */
+        btn.style.position = 'sticky'; btn.style.bottom = '10px'; btn.style.zIndex = '6'; btn.style.boxShadow = '0 0 0 10px var(--surface)';
+      }
+      return at;
+    };
+    pintar();
+    area._pintarPassos = pintar;
+    if(!area._pintarLigado){
+      area._pintarLigado = true;
+      area.addEventListener('input', ()=>{ clearTimeout(area._pintarT); area._pintarT = setTimeout(()=>{ if(area._pintarPassos) area._pintarPassos(); }, 250); });
+    }
+    const alvo = passoEditar ? passos.find(p=>p.id===passoEditar.id) : atual;
+    const chave = confMode+':'+(alvo?alvo.id:'fim')+(passoEditar?':ed':'');
+    const a = document.activeElement;
+    if(ultimoPassoVisto!==null && ultimoPassoVisto!==chave && alvo && !(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))){
+      setTimeout(()=>alvo.el.scrollIntoView({ behavior:'smooth', block:'center' }), 150);
+    }
+    ultimoPassoVisto = chave;
+  }
+  function renderFormBase(){
     const area = phone.querySelector('#form-area');
     const entrada = confMode==='entrada';
     const viagem = viagemSelecionada();
@@ -4044,23 +4186,23 @@ function viewConferente(){
 
     area.innerHTML = `
       ${entrada ? `
-        <p class="section-title">Proveniência</p>
+        <p class="section-title" data-passo="origem">Proveniência</p>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;" id="origens"></div>
-        <p class="section-title">Guia a confirmar <span style="font-weight:400;color:var(--ink-mute);">(uma viagem de cada vez)</span></p>
+        <p class="section-title" data-passo="guiaSel">Guia a confirmar <span style="font-weight:400;color:var(--ink-mute);">(uma viagem de cada vez)</span></p>
         <div id="viagens-lista" style="margin-bottom:14px;"></div>
       ` : ''}
       ${(!entrada || formState.guiaSel) ? `
       ${comboioPossivel && !pessoaDaGuia ? `<p class="section-title">Modal</p><div style="display:flex;gap:6px;margin-bottom:14px;" id="modais"></div>` : ''}
       ${!embarque ? `
         ${pessoaDaGuia ? `
-          <p class="section-title">${labelPessoa} <span style="font-weight:400;color:var(--ink-mute);">(vem da guia)</span></p>
+          <p class="section-title" data-passo="pessoa">${labelPessoa} <span style="font-weight:400;color:var(--ink-mute);">(vem da guia)</span></p>
           <div style="border:1px solid var(--moss);background:var(--moss-bg);border-radius:8px;padding:10px;margin-bottom:8px;">
             <p style="font-size:13px;font-weight:600;color:var(--ink);margin:0 0 2px;">${formState.nome || '—'}</p>
             <p style="font-size:12.5px;font-family:var(--mono);color:var(--ink-soft);margin:0;">${formState.matricula || '—'}${formState.carruagem?(' · '+formState.carruagem):''}</p>
           </div>
           <button id="btn-troca-pessoa" class="btn ghost small" style="margin-bottom:14px;">Chegou ${ehComboio?'outro maquinista/locomotiva':'outro motorista/viatura'}</button>
         ` : `
-          <p class="section-title">${labelPessoa}</p>
+          <p class="section-title" data-passo="pessoa">${labelPessoa}</p>
           <div style="position:relative;margin-bottom:6px;"><input id="input-busca-pessoa" placeholder="${placeholderBusca}" style="width:100%;height:46px;border-radius:10px;border:2px solid var(--slate);padding:0 14px;font-size:14px;font-weight:500;background:var(--surface);color:var(--ink);" /></div>
           <div id="sugestoes-pessoa" style="margin-bottom:14px;"></div>
           ${formState.nome ? `
@@ -4070,31 +4212,31 @@ function viewConferente(){
               <input id="input-matricula-confirm" value="${formState.matricula||''}" placeholder="Matrícula / locomotiva" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-size:13px;font-family:var(--mono);background:var(--surface);color:var(--ink);" />
             </div>
           ` : `<p style="font-size:12px;color:var(--amber);margin:0 0 14px;">⚠ Ainda não seleccionaste ${ehComboio?'o maquinista':'o motorista'}.</p>`}
-          ${ehComboio ? `<p class="section-title">Carruagem</p><input id="input-carruagem" value="${formState.carruagem||''}" placeholder="Ex: VG-07" style="width:100%;height:38px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-size:13px;font-family:var(--mono);margin-bottom:14px;background:var(--surface);color:var(--ink);" />` : ''}
+          ${ehComboio ? `<p class="section-title" data-passo="carruagem">Carruagem</p><input id="input-carruagem" value="${formState.carruagem||''}" placeholder="Ex: VG-07" style="width:100%;height:38px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-size:13px;font-family:var(--mono);margin-bottom:14px;background:var(--surface);color:var(--ink);" />` : ''}
         `}
       ` : `<p style="font-size:12px;color:var(--ink-mute);margin:0 0 14px;">Embarque num navio — não pede motorista.</p>`}
       ${(!entrada && noPorto) ? `
-        <p class="section-title">Bloco(s) <span style="font-weight:400;color:var(--ink-mute);">${embarqueComNavio ? '(indica também o porão)' : '(escreve primeiro)'}</span></p>
+        <p class="section-title" data-passo="blocos">Bloco(s) <span style="font-weight:400;color:var(--ink-mute);">${embarqueComNavio ? '(indica também o porão)' : '(escreve primeiro)'}</span></p>
         <div id="blocos-inputs-porto"></div>
         <button id="btn-add-bloco-porto" class="btn ghost small" style="margin-bottom:14px;">+ adicionar bloco</button>
       ` : ''}
       ${!entrada ? `
-        <p class="section-title">${noPorto ? 'Situação do bloco na Sogester' : 'Destino'}</p>
+        <p class="section-title" data-passo="destino">${noPorto ? 'Situação do bloco na Sogester' : 'Destino'}</p>
         ${(noPorto && tipoCargaAtual==='misto') ? `<p style="font-size:11.5px;color:var(--rust);margin:0 0 8px;">⚠ Mistura de granel e contentor — separa em dois registos.</p>` : ''}
         ${(noPorto && !tipoCargaAtual) ? `<p style="font-size:12px;color:var(--ink-mute);margin:0 0 8px;">Escreve o(s) bloco(s) acima primeiro.</p>` : `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;" id="destinos"></div>`}
       ` : ''}
       ${enchimentoAqui ? `
-        <p class="section-title">Tipo de saída</p>
+        <p class="section-title" data-passo="tipoSaida">Tipo de saída</p>
         <div style="display:flex;gap:6px;margin-bottom:${formState.tipoSaidaChibia==='contentor'?'10px':'14px'};" id="tipo-saida-chibia"></div>
         ${formState.tipoSaidaChibia==='contentor' ? `
-          <p class="section-title">Contentor <span style="font-weight:400;color:var(--ink-mute);">(enchido aqui, na Chibia)</span></p>
+          <p class="section-title" data-passo="contentor">Contentor <span style="font-weight:400;color:var(--ink-mute);">(enchido aqui, na Chibia)</span></p>
           <input id="input-processo-chibia" value="${formState.processoContentor||''}" placeholder="Processo do contentor (herdado dos blocos)" style="width:100%;height:38px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-size:13px;font-family:var(--mono);margin-bottom:6px;background:var(--surface);color:var(--ink);" />
           <input id="input-contentor-chibia" value="${formState.numContentor||''}" placeholder="Nº do contentor (ex: FTAU136590-8)" style="width:100%;height:38px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-size:13px;font-family:var(--mono);margin-bottom:4px;background:var(--surface);color:var(--ink);" />
           <p style="font-size:11px;color:var(--ink-mute);margin:0 0 14px;">O processo do bloco não muda — isto regista só a carga do contentor.</p>
         ` : ''}
       ` : ''}
-      ${embarque ? (embarqueComNavio ? `<p class="section-title">Missão / Navio</p><div id="missoes-lista" style="margin-bottom:14px;"></div>` : '') : (guiaEditavel ? `
-        <p class="section-title">Guia Nº <span style="font-weight:400;color:var(--ink-mute);">${guiaProducao ? '(emitida aqui)' : '(escreve o número do papel)'}</span></p>
+      ${embarque ? (embarqueComNavio ? `<p class="section-title" data-passo="missao">Missão / Navio</p><div id="missoes-lista" style="margin-bottom:14px;"></div>` : '') : (guiaEditavel ? `
+        <p class="section-title" data-passo="guia">Guia Nº <span style="font-weight:400;color:var(--ink-mute);">${guiaProducao ? '(emitida aqui)' : '(escreve o número do papel)'}</span></p>
         <input id="input-guia" value="${formState.guia}" placeholder="${guiaProducao ? '' : 'Nº da guia'}" style="width:100%;height:38px;border-radius:8px;border:1px solid ${guiaDuplicada?'var(--rust)':(guiaForaSeq?'var(--amber)':'var(--border-strong)')};padding:0 10px;font-size:13px;font-family:var(--mono);margin-bottom:4px;background:var(--surface);color:var(--ink);" />
         <p id="guia-warn" style="font-size:11.5px;margin:0 0 12px;display:${(guiaDuplicada||guiaForaSeq)?'block':'none'};color:${guiaDuplicada?'var(--rust)':'var(--amber)'};">${guiaDuplicada ? '⚠ Esta guia já foi registada.' : (guiaForaSeq ? `⚠ Fora da sequência esperada (${guiaEsperada}).` : '')}</p>
       ` : `
@@ -4104,8 +4246,8 @@ function viewConferente(){
           <span style="font-size:11.5px;color:var(--ink-mute);">emitida em ${formState.origem} — aqui só se confirma</span>
         </div>
       `)}
-      ${entrada ? `<p class="section-title">Blocos desta guia <span style="font-weight:400;color:var(--ink-mute);">(desmarca o que não chegou)</span></p><div id="pendentes-lista"></div>` : (noPorto ? '' : `
-        <p class="section-title">Bloco(s) <span style="font-weight:400;color:var(--ink-mute);">(até ${cap} por ${ehComboio?'comboio':'camião'})</span></p>
+      ${entrada ? `<p class="section-title" data-passo="selecionados">Blocos desta guia <span style="font-weight:400;color:var(--ink-mute);">(desmarca o que não chegou)</span></p><div id="pendentes-lista"></div>` : (noPorto ? '' : `
+        <p class="section-title" data-passo="blocos">Bloco(s) <span style="font-weight:400;color:var(--ink-mute);">(até ${cap} por ${ehComboio?'comboio':'camião'})</span></p>
         <div id="blocos-inputs"></div>
         ${formState.blocos.length < cap ? `<button id="btn-add-bloco" class="btn ghost small" style="margin-bottom:14px;">+ adicionar bloco</button>` : '<div style="margin-bottom:14px;"></div>'}
       `)}
@@ -4218,6 +4360,7 @@ function viewConferente(){
         const encontrados = fontePessoa.filter(m=> m.nome.toLowerCase().includes(termo) || m.ref.toLowerCase().includes(termo.replace(/\s/g,''))).slice(0,4);
         if(encontrados.length===0){ sugPessoa.innerHTML = '<p style="font-size:12px;color:var(--ink-mute);margin:0;">Nenhum resultado.</p>'; return; }
         encontrados.forEach(m=> sugPessoa.appendChild(montarLinhaPessoa(m, false)));
+        const dica = document.createElement('p'); dica.style.cssText = 'font-size:12px;color:var(--amber);margin:6px 0 0;'; dica.textContent = 'Toca num nome da lista para o escolher.'; sugPessoa.appendChild(dica);
       };
       inputPessoa.addEventListener('input', ()=> mostrarSugestoesPessoa(inputPessoa.value));
       mostrarSugestoesPessoa('');
@@ -4971,12 +5114,93 @@ function resumoProcessosDiretor(){
   linhas.sort((a,b)=> b.total - a.total);
   return linhas.slice(0,5);
 }
+
+/* ---------------- DIREÇÃO: risco de prazo = o que é humanamente factível ---------------- */
+const ETAPAS_REDE = ['Chibia','Arimba','Caraculo','Saco-Mar','Sogester'];
+const FRONTEIRAS = ['Pedreira → Chibia','Chibia → Arimba','Arimba → Caraculo','Caraculo → Saco-Mar','Saco-Mar → Sogester'];
+function idxEtapa(nome){ if(!nome) return 0; const t = String(nome); return ETAPAS_REDE.findIndex(e=>t.startsWith(e)) + 1; }   // 0 = pedreira
+function etapaDoBloco(b){
+  if(!b || b.estado==='anulado') return null;
+  if(b.estado==='embarcado' || b.estado==='entregue_sogester') return 6;
+  if(b.estado==='a_caminho') return idxEtapa(b.destinoMovimento || String(b.local||'').replace(/^A caminho de\s+/,''));
+  return idxEtapa(b.local);
+}
+/* blocos por dia que atravessam cada fronteira: média dos últimos 3 dias (antes de hoje) com movimento; precisa de 2 dias */
+function ritmoPorFronteira(){
+  const hoje = agoraISO(); const porDia = FRONTEIRAS.map(()=>new Map());
+  STATE.guias.forEach(g=>{
+    if(!ehViagem(g) || !g.data) return;
+    const a = idxEtapa(g.de), b = idxEtapa(g.para), n = (g.blocos||[]).length;
+    for(let f=0; f<FRONTEIRAS.length; f++){ if(a<=f && f<b) porDia[f].set(g.data, (porDia[f].get(g.data)||0)+n); }
+  });
+  return porDia.map(m=>{
+    const dias = [...m.entries()].filter(([d])=>d!==hoje).sort((x,y)=>y[0].localeCompare(x[0])).slice(0,3);
+    return dias.length>=2 ? dias.reduce((s,[,v])=>s+v,0)/dias.length : null;
+  });
+}
+const fmt1 = n=> (n===null||n===undefined||isNaN(n)) ? '—' : Number(n).toLocaleString('pt-PT',{maximumFractionDigits:1});
+/* Avalia cada missão (processo com navio e embarque). O ritmo é dado primeiro ao embarque mais próximo, e o resto aos seguintes. */
+function avaliarMissoes(){
+  const ritmo = ritmoPorFronteira(); const porProc = processoDe();
+  const info = (STATE.missoes||[]).filter(m=>m.estado==='activa'||!m.estado).map(m=>{
+    const blocos = (porProc.get(m.id)||[]).filter(b=>b.estado!=='anulado');
+    const dem = FRONTEIRAS.map(()=>0); const posic = [];
+    blocos.forEach(b=>{ const e = etapaDoBloco(b); if(e===null) return; if(e>=5) posic.push(b); for(let f=0; f<FRONTEIRAS.length; f++){ if(e<=f) dem[f]++; } });
+    const prazo = m.dataCarregamento || m.dataPosicionamento || null;
+    const alvo = parseDataPT(prazo);
+    return { m, blocos, dem, posic, ton: somaPeso(posic), prazo, dias: prazo ? diasAteData(prazo) : null, alvo, semLista: Math.max(0,(m.meta||0)-blocos.length) };
+  }).sort((a,b)=>(a.alvo?a.alvo.getTime():9e15)-(b.alvo?b.alvo.getTime():9e15));
+  const cum = FRONTEIRAS.map(()=>0);
+  return info.map(x=>{
+    x.dem.forEach((d,f)=>{ cum[f]+=d; });
+    x.linhas = FRONTEIRAS.map((nome,f)=>({ nome, demanda:x.dem[f], fila:cum[f]-x.dem[f], acumulada:cum[f], ritmo:ritmo[f], dias:(x.dem[f]>0 && ritmo[f]) ? cum[f]/ritmo[f] : null })).filter(l=>l.demanda>0);
+    const medidas = x.linhas.filter(l=>l.dias!==null);
+    x.semRitmo = x.linhas.filter(l=>l.dias===null).map(l=>l.nome);
+    x.gargalo = medidas.length ? medidas.reduce((a,b)=>b.dias>=a.dias?b:a) : null;   // em empate, a fronteira mais perto do destino
+    x.precisa = x.gargalo ? x.gargalo.dias : null;
+    if(!x.blocos.length) x.status = 'sem_blocos';
+    else if(!x.linhas.length) x.status = 'posicionada';
+    else if(x.precisa===null) x.status = 'sem_ritmo';
+    else if(x.dias===null) x.status = 'sem_prazo';
+    else if(x.dias<=0) x.status = 'risco';
+    else { const r = x.precisa/x.dias; x.status = r<=0.8 ? 'ok' : (r<=1 ? 'atencao' : 'risco'); }
+    return x;
+  });
+}
+function explicaMissao(x){
+  if(x.status==='sem_blocos') return 'Ainda não há blocos atribuídos a este processo.';
+  if(x.status==='posicionada') return 'Todos os blocos atribuídos já estão posicionados.';
+  if(x.status==='sem_ritmo') return 'Ainda sem ritmo medido: precisa de 2 dias de movimentos para estimar o prazo.';
+  const g = x.gargalo; const d = x.dias;
+  const prazoTxt = d===null ? 'sem data de embarque' : (d<=0 ? 'prazo chegou' : `restam ${d} dia(s)`);
+  return `${g.acumulada} por atravessar ${g.nome} · ritmo ${fmt1(g.ritmo)}/dia · precisa de ${fmt1(g.dias)} dias · ${prazoTxt}`;
+}
+/* camiões a sério: matrículas distintas que aparecem em guias */
+function camioesReais(){
+  const hoje = agoraISO(); const norm = v=>String(v||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  const porElo = new Map(), hojeTodos = new Set(), estradaTodos = new Set();
+  const elo = (de,para)=>{ const k=de+' → '+para; if(!porElo.has(k)) porElo.set(k,{ de, para, ativos:new Set(), viagens:0, blocos:0, estrada:new Set() }); return porElo.get(k); };
+  const d2 = new Date(); d2.setDate(d2.getDate()-2); const limite = d2.toLocaleDateString('en-CA');
+  STATE.guias.forEach(g=>{
+    if(!ehViagem(g)) return; const v = norm(g.viatura);
+    if(g.data===hoje){ const e = elo(g.de,g.para); e.viagens++; e.blocos += (g.blocos||[]).length; if(v){ e.ativos.add(v); hojeTodos.add(v); } }
+    if(g.tipo==='saida' && v && g.data>=limite){
+      const conf = new Set(); STATE.guias.forEach(x=>{ if(x.tipo==='entrada' && x.de===g.de && x.numero===g.numero) (x.blocos||[]).forEach(n=>conf.add(n)); });
+      if((g.blocos||[]).some(n=>!conf.has(n))){ elo(g.de,g.para).estrada.add(v); estradaTodos.add(v); }
+    }
+  });
+  const linhas = [...porElo.values()].map(e=>({ de:e.de, para:e.para, ativos:e.ativos.size, estrada:e.estrada.size, viagens:e.viagens, blocos:e.blocos }))
+    .filter(l=>l.ativos||l.estrada||l.viagens).sort((a,b)=>b.ativos-a.ativos);
+  return { linhas, hoje: hojeTodos.size, estrada: estradaTodos.size, cadastradas: (STATE.motoristas||[]).filter(m=>m.activo!==false).length };
+}
+let dgMissao = null;
+
 function viewDiretor(){
   const el = document.createElement('div');
-  const missaoPrincipal = STATE.missoes[0] || {};
-  const blocosMissao = STATE.blocos.filter(b=> b.missaoId === missaoPrincipal.id || (b.local||'').startsWith('Embarcado'));
-  const blocosPosicionados = blocosMissao.length || 451;
-  const tonPosicionadas = blocosMissao.length ? somaPeso(blocosMissao) : 10914.4;
+  const aval = avaliarMissoes(); const frotaR = camioesReais();
+  const kp = aval[0] || null; const kpM = kp ? kp.m : {};                       // missão com o embarque mais próximo
+  const avalPrincipal = aval.find(x=>x.m.id===dgMissao) || aval[0] || null;     // missão aberta no detalhe
+  const emRisco = aval.filter(x=>x.status==='risco').length;
   if(!dgDetail){
     const linhasTransporte = resumoTransporteDiario();
     const linhasProcessos = resumoProcessosDiretor();
@@ -4992,7 +5216,7 @@ function viewDiretor(){
     const setaTxt = t=> t==='up'?'▲ acima da média':(t==='down'?'▼ abaixo da média':(t==='igual'?'→ na média':''));
     const setaCor = t=> t==='up'?'var(--moss)':(t==='down'?'var(--rust)':'var(--ink-mute)');
     const quaseCompletos = linhasProcessos.filter(p=>p.pct>=80 && p.pct<100).length;
-    const diasCarregamento = diasAteData(missaoPrincipal.dataCarregamento);
+    const diasCarregamento = kpM.dataCarregamento ? diasAteData(kpM.dataCarregamento) : null;
     const excecoes = excecoesDoDia();
     el.innerHTML = `
       <div class="roles" style="margin-bottom:14px;">
@@ -5002,10 +5226,10 @@ function viewDiretor(){
 
       ${dirVista==='kpis' ? `
       <div class="grid g2" style="margin-bottom:14px;">
-        <div class="stat ${corCountdown(diasCarregamento)}"><p class="label">Carregamento · ${missaoPrincipal.id||'—'}</p><p class="value" style="font-size:28px;">${txtCountdown(diasCarregamento)}</p></div>
-        <div class="stat risk"><p class="label">Missões em risco</p><p class="value">1</p></div>
-        <div class="stat"><p class="label">Missão principal</p><p class="value">${blocosPosicionados}/${missaoPrincipal.meta||'—'}</p><p class="sub">blocos posicionados</p></div>
-        <div class="stat"><p class="label">Frota activa</p><p class="value">${STATE.frota.ativos}/${STATE.frota.planeado}</p></div>
+        <div class="stat ${corCountdown(diasCarregamento)}"><p class="label">Carregamento · ${kpM.id||'—'}</p><p class="value" style="font-size:28px;">${txtCountdown(diasCarregamento)}</p></div>
+        <div class="stat ${emRisco?'risk':(aval.length?'ok':'')}"><p class="label">Missões em risco</p><p class="value">${aval.length?emRisco:'—'}</p>${aval.length?`<p class="sub">de ${aval.length} ativa(s)</p>`:''}</div>
+        <div class="stat"><p class="label">Missão principal</p><p class="value">${kp?kp.posic.length:'—'}/${kpM.meta||'—'}</p><p class="sub">blocos posicionados</p></div>
+        <div class="stat"><p class="label">Camiões ativos hoje</p><p class="value">${frotaR.hoje}</p><p class="sub">${frotaR.estrada} em estrada agora</p></div>
         <div class="stat ${caraculoTendGeral==='up'?'ok':(caraculoTendGeral==='down'?'risk':'')}"><p class="label">Blocos hoje · Caraculo</p><p class="value">${caraculoHoje}</p>${caraculoTendGeral?`<p class="sub" style="color:${setaCor(caraculoTendGeral)};">${setaTxt(caraculoTendGeral)}</p>`:''}</div>
       </div>
 
@@ -5037,39 +5261,45 @@ function viewDiretor(){
     const content = el.querySelector('#dir-content');
 
     if(dirSeccao==='missoes'){
+      const ROT = { ok:['no prazo','ok'], atencao:['atenção','warn'], risco:['em risco','danger'], sem_ritmo:['sem ritmo ainda',''], sem_prazo:['sem data de embarque',''], posicionada:['posicionada','ok'], sem_blocos:['sem blocos',''] };
       content.innerHTML = `
       <div class="panel">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px;">
           <p style="font-size:15px;font-weight:600;margin:0;">Missões activas</p>
+          <span style="font-size:11.5px;color:var(--ink-mute);">embarque mais próximo primeiro</span>
         </div>
-        <div class="missions-list">
-          <div class="mission-card risk" id="mc-1">
-            <div class="mc-top">
-              <div><p class="mc-name">${missaoPrincipal.id||'—'}</p><p class="mc-sub">${missaoPrincipal.navio||'—'} · ${missaoPrincipal.local||'—'}</p></div>
-              <span class="badge warn">risco de prazo</span>
-            </div>
-            <div class="bar-outer" style="margin-bottom:6px;"><div class="bar-inner warn" style="width:45%;"></div></div>
-            <p class="meta" style="margin:0;">${blocosPosicionados} / ${missaoPrincipal.meta||'—'} blocos · <strong style="color:var(--slate);font-family:var(--mono);">${formatarTonTotal(tonPosicionadas)} / ${formatarTonTotal((missaoPrincipal.metaTon||0)*1000)}</strong> · carregamento: ${txtCountdown(diasCarregamento)}</p>
+        <div class="missions-list" id="ml"></div>
+      </div>`;
+      const ml = content.querySelector('#ml');
+      if(!aval.length) ml.innerHTML = '<p style="font-size:12.5px;color:var(--ink-mute);margin:0;">Sem missões ativas. Um processo passa a ser missão quando tem navio atribuído e data de embarque.</p>';
+      aval.forEach(x=>{
+        const [txt,cls] = ROT[x.status]; const pct = x.m.meta ? Math.min(100,Math.round(100*x.posic.length/x.m.meta)) : 0;
+        const card = document.createElement('div'); card.className = 'mission-card'+(x.status==='risco'?' risk':'');
+        card.innerHTML = `
+          <div class="mc-top">
+            <div><p class="mc-name">${x.m.id}</p><p class="mc-sub">${x.m.navio||'—'} · ${x.m.local||'—'} · embarque ${x.m.dataCarregamento||'—'} (${txtCountdown(x.dias)})</p></div>
+            <span class="badge ${cls}" ${cls?'':'style="background:var(--surface-2);color:var(--ink-mute);"'}>${txt}</span>
           </div>
-          <div class="mission-card">
-            <div class="mc-top">
-              <div><p class="mc-name">Contentores · navio ${STATE.contentores.navioContentores}</p><p class="mc-sub">Sacomar / Caraculo</p></div>
-              <span class="badge ok">no prazo</span>
-            </div>
-            <div class="bar-outer"><div class="bar-inner ok" style="width:58%;"></div></div>
-          </div>
-          <div class="mission-card planned">
-            <div class="mc-top">
-              <div><p class="mc-name">MS-004/2026</p><p class="mc-sub">Planeada · início 28/09</p></div>
-              <span class="badge" style="background:var(--surface-2);color:var(--ink-mute);">por iniciar</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      `;
-      content.querySelector('#mc-1').onclick = ()=>{ dgDetail=true; render(); };
+          <div class="bar-outer" style="margin-bottom:6px;"><div class="bar-inner ${x.status==='risco'||x.status==='atencao'?'warn':(x.status==='ok'||x.status==='posicionada'?'ok':'')}" style="width:${pct}%;"></div></div>
+          <p class="meta" style="margin:0 0 4px;">${x.posic.length} / ${x.m.meta||'—'} blocos posicionados · <strong style="color:var(--slate);font-family:var(--mono);">${formatarTonTotal(x.ton)}</strong></p>
+          <p style="font-size:12px;color:var(--ink-soft);margin:0;">${explicaMissao(x)}</p>`;
+        card.onclick = ()=>{ dgMissao = x.m.id; dgDetail = true; render(); };
+        ml.appendChild(card);
+      });
     } else if(dirSeccao==='transporte'){
-      content.innerHTML = `
+      const camioesHtml = `
+      <div class="panel" style="margin-bottom:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;">
+          <p style="font-size:15px;font-weight:600;margin:0;">Camiões reais por elo</p>
+          <span style="font-size:11.5px;color:var(--ink-mute);">contados pelas guias</span>
+        </div>
+        <div class="grid g2" style="margin-bottom:10px;">
+          <div class="stat"><p class="label">Ativos hoje</p><p class="value">${frotaR.hoje}</p><p class="sub">${frotaR.cadastradas ? 'de '+frotaR.cadastradas+' cadastrados' : 'matrículas distintas'}</p></div>
+          <div class="stat ${frotaR.estrada?'warn':''}"><p class="label">Em estrada agora</p><p class="value">${frotaR.estrada}</p><p class="sub">saída sem entrada confirmada</p></div>
+        </div>
+        ${frotaR.linhas.length ? frotaR.linhas.map(l=>`<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:6px 0;border-top:1px solid var(--border);font-size:13px;"><strong>${l.de} → ${l.para}</strong><span style="font-family:var(--mono);font-size:12px;">${l.ativos} ativos · ${l.estrada} em estrada · ${l.viagens} viagens · ${l.blocos} blocos</span></div>`).join('') : '<p style="font-size:12.5px;color:var(--ink-mute);margin:0;">Ainda sem guias hoje.</p>'}
+      </div>`;
+      content.innerHTML = camioesHtml + `
       <div class="panel">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;">
           <p style="font-size:15px;font-weight:600;margin:0;">Transporte diário por elo</p>
@@ -5107,33 +5337,48 @@ function viewDiretor(){
     }
     } // fim dirVista==='detalhe'
   } else {
-    el.innerHTML = `
-      <div class="panel" style="max-width:440px;">
+    const x = avalPrincipal;
+    if(!x){
+      el.innerHTML = `<div class="panel" style="max-width:440px;"><button class="backbtn" id="back-dg">← voltar às missões</button><p style="font-size:13px;color:var(--ink-mute);">Sem missão selecionada.</p></div>`;
+      el.querySelector('#back-dg').onclick = ()=>{ dgDetail=false; render(); };
+    } else {
+      const M = x.m, pct = M.meta ? Math.min(100,Math.round(100*x.posic.length/M.meta)) : 0;
+      const cor = { risco:'background:var(--rust-bg);color:#7A2B1F;', atencao:'background:var(--amber-bg);color:#7A5209;', ok:'background:var(--moss-bg);color:#2C4F37;' }[x.status] || 'background:var(--surface-2);color:var(--ink-soft);';
+      const titulo = { risco:'Em risco de prazo.', atencao:'Atenção: prazo apertado.', ok:'No prazo.', sem_ritmo:'Sem ritmo medido.', sem_prazo:'Sem data de embarque.', posicionada:'Posicionada.', sem_blocos:'Sem blocos.' }[x.status];
+      el.innerHTML = `
+      <div class="panel" style="max-width:520px;">
         <button class="backbtn" id="back-dg">← voltar às missões</button>
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;">
-          <p style="font-size:15px;font-weight:600;margin:0;">${missaoPrincipal.id||'—'}</p>
+          <p style="font-size:15px;font-weight:600;margin:0;">${M.id||'—'}</p>
           <button class="btn primary" id="pts-dg" style="padding:6px 12px;font-size:12px;">Gerar PTS</button>
         </div>
-        <div class="alert warn" style="margin-bottom:14px;">
-          <span>⚠</span>
-          <p><strong>Risco de prazo.</strong> Posicionamento previsto p/ ${missaoPrincipal.dataPosicionamento||'—'}, um dia após o carregamento (${missaoPrincipal.dataCarregamento||'—'}).</p>
+        <div class="alert" style="${cor}margin-bottom:14px;"><span>${x.status==='risco'?'⚠':(x.status==='ok'||x.status==='posicionada'?'✓':'ℹ')}</span>
+          <p><strong>${titulo}</strong> ${explicaMissao(x)}<br><span style="font-size:11.5px;">Prazo contado até ao embarque (${M.dataCarregamento||'—'})${M.dataPosicionamento?`; posicionamento previsto para ${M.dataPosicionamento}`:''}.</span></p>
         </div>
         <div class="stat" style="margin-bottom:14px;">
-          <p class="label">${missaoPrincipal.navio||'—'} · ${missaoPrincipal.local||'—'}</p>
-          <div class="bar-outer" style="margin:6px 0;"><div class="bar-inner" style="width:45%;"></div></div>
-          <p class="meta">${blocosPosicionados} / ${missaoPrincipal.meta||'—'} blocos posicionados</p>
-          <p class="sub">${formatarTonTotal(tonPosicionadas)} / ${formatarTonTotal((missaoPrincipal.metaTon||0)*1000)}</p>
+          <p class="label">${M.navio||'—'} · ${M.local||'—'}</p>
+          <div class="bar-outer" style="margin:6px 0;"><div class="bar-inner ${x.status==='risco'||x.status==='atencao'?'warn':'ok'}" style="width:${pct}%;"></div></div>
+          <p class="meta">${x.posic.length} / ${M.meta||'—'} blocos posicionados (na Sogester ou embarcados)</p>
+          <p class="sub">${formatarTonTotal(x.ton)}${M.metaTon?' / '+formatarTonTotal(M.metaTon*1000):''}</p>
         </div>
+        ${x.linhas.length ? `
+        <p style="font-size:12.5px;font-weight:600;margin:0 0 6px;">Por fronteira (o que ainda falta atravessar)</p>
+        <div style="overflow-x:auto;margin-bottom:12px;"><table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+          <thead><tr style="text-align:left;color:var(--ink-mute);"><th style="padding:4px 6px;">Fronteira</th><th style="padding:4px 6px;text-align:right;">Faltam</th><th style="padding:4px 6px;text-align:right;">Ritmo/dia</th><th style="padding:4px 6px;text-align:right;">Dias</th></tr></thead>
+          <tbody>${x.linhas.map(l=>`<tr style="border-top:1px solid var(--border);${x.gargalo&&l.nome===x.gargalo.nome?'font-weight:700;':''}"><td style="padding:5px 6px;">${l.nome}${x.gargalo&&l.nome===x.gargalo.nome?' ◀ gargalo':''}</td><td style="padding:5px 6px;text-align:right;font-family:var(--mono);">${l.demanda}${l.fila?` <span style="color:var(--ink-mute);font-weight:400;">(+${l.fila} à frente)</span>`:''}</td><td style="padding:5px 6px;text-align:right;font-family:var(--mono);">${fmt1(l.ritmo)}</td><td style="padding:5px 6px;text-align:right;font-family:var(--mono);">${fmt1(l.dias)}</td></tr>`).join('')}</tbody>
+        </table></div>` : ''}
+        ${x.semRitmo.length ? `<p style="font-size:12px;color:var(--ink-mute);margin:0 0 8px;">Sem ritmo medido ainda: ${x.semRitmo.join(', ')} (estimativa parcial).</p>` : ''}
+        ${x.semLista>0 ? `<p style="font-size:12px;color:var(--ink-mute);margin:0 0 8px;">${x.semLista} bloco(s) da meta ainda sem lista ou localização: não entram nesta estimativa.</p>` : ''}
         <div class="grid g2">
-          <div class="stat"><p class="label">Ritmo do ciclo</p><p class="value" style="font-size:16px;color:var(--moss);">No plano</p></div>
-          <div class="stat warn"><p class="label">Frota</p><p class="value" style="font-size:16px;">${STATE.frota.ativos}/${STATE.frota.planeado}</p></div>
+          <div class="stat"><p class="label">Camiões ativos hoje</p><p class="value" style="font-size:18px;">${frotaR.hoje}</p></div>
+          <div class="stat ${frotaR.estrada?'warn':''}"><p class="label">Em estrada agora</p><p class="value" style="font-size:18px;">${frotaR.estrada}</p></div>
         </div>
-      </div>
-    `;
-    el.querySelector('#back-dg').onclick = ()=>{ dgDetail=false; render(); };
-    el.querySelector('#pts-dg').onclick = ()=>{
-      alert(`PONTO DE SITUAÇÃO — Direção\n${missaoPrincipal.id} — ${blocosPosicionados}/${missaoPrincipal.meta} blocos · ${formatarTonTotal(tonPosicionadas)}\nFrota: ${STATE.frota.ativos}/${STATE.frota.planeado}`);
-    };
+      </div>`;
+      el.querySelector('#back-dg').onclick = ()=>{ dgDetail=false; render(); };
+      el.querySelector('#pts-dg').onclick = ()=>{
+        alert(`PONTO DE SITUAÇÃO — Direção\n${M.id} · ${M.navio||'—'} · embarque ${M.dataCarregamento||'—'}\n${x.posic.length}/${M.meta||'—'} blocos posicionados · ${formatarTonTotal(x.ton)}\n${titulo} ${explicaMissao(x)}\nCamiões: ${frotaR.hoje} ativos hoje · ${frotaR.estrada} em estrada agora`);
+      };
+    }
   }
   return el;
 }
@@ -6608,7 +6853,7 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
     if(emPuxar || !window.sb || !eu() || navigator.onLine===false) return;
     emPuxar = true; const novas = [];
     try{
-      if(primeira){ STATE.sala = (STATE.sala||[]).filter(m=>m.id||m.client_id); maxId = Math.max(0, ...STATE.sala.filter(m=>m.id).map(m=>m.id)); }
+      if(primeira){ STATE.sala = (STATE.sala||[]).filter(m=>!m.id && m.client_id); maxId = 0; }   // a cópia local nunca manda: relê tudo do servidor (resiste a uma limpeza da base de dados)
       for(;;){
         const {data,error} = await window.sb.from('mensagens').select('*').gt('id',maxId).order('id',{ascending:true}).limit(500);
         if(error) throw error; if(!data || !data.length) break;
