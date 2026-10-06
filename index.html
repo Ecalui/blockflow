@@ -3935,48 +3935,135 @@ function adoptarViagem(v){
 }
 
 
-let parqueAberto = false, parqueTodos = false;
+let parqueAberto = false, parqueTodos = false, parqueVista = 'processo', parqueExp = null, buscaAberta = false, buscaQ = '';
 function parqueResumo(posto){
   const idx = new Map(); STATE.blocos.forEach(b=>idx.set(b.numero,b));
-  const hoje = agoraISO(); const porProc = {};
+  const hoje = agoraISO(); const porProc = {}, porCli = {};
   const L = k=> porProc[k] || (porProc[k] = { aqui:0, sairam:0, chegar:0 });
+  const LC = k=> porCli[k] || (porCli[k] = { aqui:0, sairam:0, chegar:0 });
+  const ck = b=> (b && clienteDeBloco(b)) || 'Sem cliente';
   let aqui = 0, chegar = 0;
   STATE.blocos.forEach(b=>{ const k = b.processo || 'Sem processo';
-    if(parqueDe(b)===posto){ aqui++; L(k).aqui++; }
-    else if(b.estado==='a_caminho' && b.destinoMovimento===posto){ chegar++; L(k).chegar++; } });
+    if(parqueDe(b)===posto){ aqui++; L(k).aqui++; LC(ck(b)).aqui++; }
+    else if(b.estado==='a_caminho' && b.destinoMovimento===posto){ chegar++; L(k).chegar++; LC(ck(b)).chegar++; } });
   const sairam = new Set(), hojeSet = new Set();
   (STATE.guias||[]).forEach(g=>{
     const sai = (g.tipo==='saida' && g.de===posto) || (g.tipo==='embarque' && posto==='Sogester' && /^Embarcado/.test(g.para||''));
     if(!sai) return;
     (g.blocos||[]).forEach(n=>{ sairam.add(n); if(g.data===hoje) hojeSet.add(n); });
   });
-  sairam.forEach(n=>{ const b = idx.get(n); L(b && b.processo ? b.processo : 'Sem processo').sairam++; });
-  return { aqui, chegar, sairam: sairam.size, hoje: hojeSet.size, porProc };
+  sairam.forEach(n=>{ const b = idx.get(n); L(b && b.processo ? b.processo : 'Sem processo').sairam++; LC(ck(b)).sairam++; });
+  return { aqui, chegar, sairam: sairam.size, hoje: hojeSet.size, porProc, porCli, sairamSet: sairam };
 }
 function parquePanel(){
   const r = parqueResumo(postoAtivo);
   const box = document.createElement('div');
   box.style.cssText = 'border:1px solid var(--border);border-radius:12px;background:var(--surface);padding:10px;margin-bottom:12px;';
-  const num = (v,l,c)=>`<div style="flex:1;text-align:center;"><div style="font-size:22px;font-weight:700;font-family:var(--mono);color:${c||'var(--ink)'};line-height:1.15;">${v}</div><div style="font-size:10px;color:var(--ink-mute);text-transform:uppercase;letter-spacing:.04em;">${l}</div></div>`;
+  const num = (v,l,c)=>`<div style="flex:1;text-align:center;"><div style="font-size:22px;font-weight:700;font-family:var(--mono);color:${c||'var(--ink)'};line-height:1.15;">${v}</div><div style="font-size:10px;color:var(--ink-mute);text-transform:uppercase;letter-spacing:.3px;">${l}</div></div>`;
   box.innerHTML = `<div style="display:flex;gap:4px;">${num(r.aqui,'Aqui agora')}${num(r.chegar,'A chegar','#8A5E0B')}${num(r.hoje,'Saíram hoje','#2E7D4F')}${num(r.sairam,'Saíram (total)')}</div>
-    <button type="button" class="btn ghost small" id="parque-tog" style="width:100%;margin-top:8px;">${parqueAberto?'Esconder':'Ver'} por processo</button><div id="parque-lista"></div>`;
+    <button type="button" class="btn ghost small" id="parque-tog" style="width:100%;margin-top:8px;">${parqueAberto?'Esconder detalhe':'Ver por processo / cliente'}</button><div id="parque-lista"></div>`;
   box.querySelector('#parque-tog').onclick = ()=>{ parqueAberto = !parqueAberto; render(); };
   if(parqueAberto){
     const lista = box.querySelector('#parque-lista'); lista.style.marginTop = '8px';
-    const linhas = Object.entries(r.porProc).filter(([,v])=>v.aqui||v.chegar||v.sairam).sort((a,b)=>(b[1].aqui+b[1].chegar)-(a[1].aqui+a[1].chegar));
-    if(!linhas.length) lista.innerHTML = '<p style="font-size:12.5px;color:var(--ink-mute);margin:0;">Sem blocos neste posto ainda.</p>';
-    (parqueTodos ? linhas : linhas.slice(0,8)).forEach(([proc,v])=>{
+    const seg = document.createElement('div'); seg.style.cssText = 'display:flex;gap:6px;margin-bottom:8px;';
+    [['processo','Por processo'],['cliente','Por cliente']].forEach(([id,lbl])=>{
+      const sb = document.createElement('button'); sb.type = 'button'; sb.className = 'btn small ' + (parqueVista===id?'primary':'ghost'); sb.style.flex = '1'; sb.textContent = lbl;
+      sb.onclick = ()=>{ parqueVista = id; parqueExp = null; parqueTodos = false; render(); };
+      seg.appendChild(sb);
+    });
+    lista.appendChild(seg);
+    const fonte = parqueVista==='cliente' ? r.porCli : r.porProc;
+    const chaveDe = b=> parqueVista==='cliente' ? ((clienteDeBloco(b)) || 'Sem cliente') : (b.processo || 'Sem processo');
+    const linhas = Object.entries(fonte).filter(([,v])=>v.aqui||v.chegar||v.sairam).sort((a,b)=>(b[1].aqui+b[1].chegar)-(a[1].aqui+a[1].chegar));
+    if(!linhas.length){ const vz = document.createElement('p'); vz.style.cssText = 'font-size:12.5px;color:var(--ink-mute);margin:0;'; vz.textContent = 'Sem blocos neste posto ainda.'; lista.appendChild(vz); }
+    (parqueTodos ? linhas : linhas.slice(0,8)).forEach(([chave,v])=>{
       const tot = v.aqui + v.sairam, pct = tot ? Math.round(100*v.sairam/tot) : 0;
+      const idExp = parqueVista+'|'+chave, aberto = parqueExp===idExp;
       const b = document.createElement('button'); b.type='button';
-      b.style.cssText = 'display:block;width:100%;text-align:left;border:1px solid var(--border);border-radius:8px;background:var(--surface-2);padding:7px 9px;margin-bottom:6px;cursor:pointer;color:var(--ink);font:inherit;';
-      b.innerHTML = `<div style="display:flex;justify-content:space-between;font-size:13px;"><strong>${proc}</strong><span style="font-family:var(--mono);">${pct}% saído</span></div>
+      b.style.cssText = 'display:block;width:100%;text-align:left;border:1px solid '+(aberto?'var(--slate)':'var(--border)')+';border-radius:8px;background:var(--surface-2);padding:7px 9px;margin-bottom:'+(aberto?'0':'6px')+';cursor:pointer;color:var(--ink);font:inherit;';
+      b.innerHTML = `<div style="display:flex;justify-content:space-between;font-size:13px;"><strong></strong><span style="font-family:var(--mono);">${pct}% saído</span></div>
         <div style="font-size:12px;color:var(--ink-soft);margin:2px 0 4px;"><strong>${v.aqui}</strong> aqui (faltam sair) · <strong>${v.sairam}</strong> já saíram${v.chegar?` · <strong>${v.chegar}</strong> a chegar`:''}</div>
         <div style="height:5px;border-radius:3px;background:var(--border);overflow:hidden;"><div style="height:100%;width:${pct}%;background:#2E7D4F;"></div></div>`;
-      b.onclick = ()=>{ salaProc = (STATE.processos.some(x=>x.codigo===proc) ? proc : salaProc); abrirSala(); };
+      b.querySelector('strong').textContent = chave;
+      b.onclick = ()=>{ parqueExp = aberto ? null : idExp; render(); };
       lista.appendChild(b);
+      if(aberto){
+        const det = document.createElement('div');
+        det.style.cssText = 'border:1px solid var(--slate);border-top:0;border-radius:0 0 8px 8px;background:var(--surface);padding:8px 9px;margin-bottom:6px;';
+        const idx = new Map(STATE.blocos.map(x=>[x.numero,x]));
+        const aqui = STATE.blocos.filter(x=> parqueDe(x)===postoAtivo && chaveDe(x)===chave).map(x=>x.numero);
+        const chegar = STATE.blocos.filter(x=> parqueDe(x)!==postoAtivo && x.estado==='a_caminho' && x.destinoMovimento===postoAtivo && chaveDe(x)===chave).map(x=>x.numero);
+        const sairam = [...r.sairamSet].filter(n=>{ const x = idx.get(n); return x ? chaveDe(x)===chave : chave==='Sem processo' || chave==='Sem cliente'; });
+        const grupo = (titulo, arr, cor)=>{
+          const g = document.createElement('div'); g.style.marginBottom = '8px';
+          const t = document.createElement('div'); t.style.cssText = 'font-size:11px;font-weight:600;color:'+cor+';margin-bottom:4px;'; t.textContent = `${titulo} (${arr.length})`; g.appendChild(t);
+          if(!arr.length){ const e = document.createElement('div'); e.style.cssText = 'font-size:12px;color:var(--ink-mute);'; e.textContent = 'nenhum'; g.appendChild(e); }
+          const w = document.createElement('div'); w.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;';
+          arr.slice(0,40).forEach(n=>{ const c = document.createElement('span'); c.style.cssText = 'font-family:var(--mono);font-size:12px;border:1px solid var(--border-strong);border-radius:6px;padding:2px 6px;background:var(--surface-2);'; c.textContent = n; w.appendChild(c); });
+          if(arr.length>40){ const m = document.createElement('span'); m.style.cssText = 'font-size:12px;color:var(--ink-mute);padding:2px 4px;'; m.textContent = `+${arr.length-40}`; w.appendChild(m); }
+          g.appendChild(w); return g;
+        };
+        det.appendChild(grupo('Aqui, faltam sair', aqui, 'var(--ink)'));
+        if(chegar.length) det.appendChild(grupo('A chegar', chegar, '#8A5E0B'));
+        det.appendChild(grupo('Já saíram', sairam, '#2E7D4F'));
+        if(parqueVista==='processo' && STATE.processos.some(x=>x.codigo===chave)){
+          const sala = document.createElement('button'); sala.type='button'; sala.className='btn ghost small'; sala.textContent = 'Abrir sala deste processo';
+          sala.onclick = ()=>{ salaProc = chave; abrirSala(); };
+          det.appendChild(sala);
+        }
+        lista.appendChild(det);
+      }
     });
     if(linhas.length>8){ const m = document.createElement('button'); m.type='button'; m.className='btn ghost small'; m.style.width='100%'; m.textContent = parqueTodos ? 'Ver menos' : `Ver todos (${linhas.length})`; m.onclick = ()=>{ parqueTodos = !parqueTodos; render(); }; lista.appendChild(m); }
   }
+  return box;
+}
+
+/* Pesquisa de blocos no ecrã do conferente (lupa): por Nº de bloco ou Nº de guia */
+function buscaBlocoPanel(){
+  const box = document.createElement('div');
+  box.style.cssText = 'border:2px solid var(--slate);border-radius:12px;background:var(--surface);padding:10px;margin-bottom:12px;';
+  box.innerHTML = `<div style="display:flex;gap:8px;align-items:center;"><input id="busca-conf" inputmode="search" autocomplete="off" placeholder="Nº do bloco ou da guia" style="flex:1;height:44px;border-radius:10px;border:2px solid var(--slate);padding:0 12px;font-size:15px;background:var(--surface);color:var(--ink);" /><button type="button" class="btn ghost small" id="busca-fechar" style="height:44px;">Fechar</button></div><div id="busca-res" style="margin-top:8px;"></div>`;
+  const inp = box.querySelector('#busca-conf'), res = box.querySelector('#busca-res');
+  inp.value = buscaQ;
+  const mk = (tag, css, txt)=>{ const e = document.createElement(tag); e.style.cssText = css; if(txt!==undefined) e.textContent = txt; return e; };
+  const pintar = ()=>{
+    res.innerHTML = '';
+    const q = buscaQ.trim();
+    if(!q){ res.appendChild(mk('p','font-size:12.5px;color:var(--ink-mute);margin:0;','Escreve o nº do bloco (ou parte dele) para ver onde está.')); return; }
+    const guia = /^\d+$/.test(q) ? STATE.guias.find(g=>String(g.numero)===q) : null;
+    if(guia){
+      const h = mk('div','border:1px solid var(--border-strong);border-radius:8px;background:var(--surface-2);padding:7px 9px;margin-bottom:6px;font-size:12.5px;');
+      h.appendChild(mk('div','font-weight:600;',`Guia ${q}${guia.motorista?' · '+guia.motorista:''}${guia.viatura?' · '+guia.viatura:''}`));
+      h.appendChild(mk('div','color:var(--ink-soft);',`${guia.de} → ${guia.para} · ${guia.data} ${guia.hora} · ${(guia.blocos||[]).length} bloco(s)`));
+      res.appendChild(h);
+    }
+    const daGuia = guia ? new Set(guia.blocos||[]) : new Set();
+    const achados = STATE.blocos.filter(b=> b.numero.includes(q) || daGuia.has(b.numero));
+    if(!achados.length){ res.appendChild(mk('p','font-size:12.5px;color:var(--ink-mute);margin:0;','Nenhum bloco encontrado.')); return; }
+    achados.slice(0,8).forEach(b=>{
+      const aqui = parqueDe(b)===postoAtivo, cli = clienteDeBloco(b);
+      const card = mk('div','border:1px solid '+(aqui?'var(--moss)':'var(--border)')+';background:'+(aqui?'var(--moss-bg)':'var(--surface-2)')+';border-radius:8px;padding:8px 10px;margin-bottom:6px;');
+      const top = mk('div','display:flex;justify-content:space-between;gap:8px;align-items:baseline;');
+      top.appendChild(mk('strong','font-family:var(--mono);font-size:15px;','Bloco '+b.numero));
+      if(aqui) top.appendChild(mk('span','font-size:11px;font-weight:600;color:var(--moss);','ESTÁ AQUI'));
+      card.appendChild(top);
+      card.appendChild(mk('div','font-size:13px;margin-top:2px;',b.local || 'sem localização'+(b.estado==='embarcado'&&b.porao?' · porão '+b.porao:'')));
+      card.appendChild(mk('div','font-size:12px;color:var(--ink-soft);margin-top:2px;',[b.processo||'sem processo', cli||'', b.pesoKg?formatarTon(b.pesoKg):''].filter(Boolean).join(' · ')));
+      const hist = STATE.guias.filter(g=>(g.blocos||[]).includes(b.numero));
+      if(hist.length){
+        const hw = mk('div','margin-top:6px;padding-left:8px;border-left:2px solid var(--border);');
+        hist.slice(0,3).forEach(g=>{ hw.appendChild(mk('div','font-size:11.5px;color:var(--ink-soft);margin:2px 0;',`${g.de} → ${g.para} · ${g.tipo==='embarque'?'embarque':'guia '+(g.numero||'—')} · ${g.data} ${g.hora}`)); });
+        if(hist.length>3) hw.appendChild(mk('div','font-size:11px;color:var(--ink-mute);',`+ ${hist.length-3} movimentação(ões) mais antiga(s)`));
+        card.appendChild(hw);
+      } else card.appendChild(mk('div','font-size:11.5px;color:var(--ink-mute);margin-top:4px;','Sem movimentações registadas.'));
+      res.appendChild(card);
+    });
+    if(achados.length>8) res.appendChild(mk('p','font-size:12px;color:var(--ink-mute);margin:2px 0 0;',`+ ${achados.length-8} resultados — escreve mais dígitos para afinar.`));
+  };
+  inp.addEventListener('input', ()=>{ buscaQ = inp.value; pintar(); });
+  box.querySelector('#busca-fechar').onclick = ()=>{ buscaAberta = false; render(); };
+  pintar();
   return box;
 }
 
@@ -3986,12 +4073,16 @@ function viewConferente(){
   const phone = document.createElement('div');
   phone.className = 'phone';
   phone.innerHTML = `
-    <div class="phone-head">
-      <p class="m1">Controlo de Blocos</p>
-      <p class="m2">Posto: <span id="posto-label">${postoAtivo}</span></p>
+    <div class="phone-head" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+      <div>
+        <p class="m1">Controlo de Blocos</p>
+        <p class="m2">Posto: <span id="posto-label">${postoAtivo}</span></p>
+      </div>
+      <button type="button" id="btn-lupa" aria-label="Pesquisar bloco" style="width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,.7);background:${buscaAberta?'#fff':'rgba(255,255,255,.15)'};color:${buscaAberta?'var(--slate)':'#fff'};display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;padding:0;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
     </div>
     <div class="phone-body">
       <div class="flash-overlay" id="flash-conferente"></div>
+      <div id="busca-wrap"></div>
       <div id="parque-wrap"></div>
       <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;" id="posto-seletor"></div>
       <div class="modebar">
@@ -4005,6 +4096,8 @@ function viewConferente(){
   `;
   wrap.appendChild(phone);
   phone.querySelector('#parque-wrap').appendChild(parquePanel());
+  phone.querySelector('#btn-lupa').onclick = ()=>{ buscaAberta = !buscaAberta; render(); if(buscaAberta) setTimeout(()=>{ const i = document.getElementById('busca-conf'); if(i) i.focus(); }, 80); };
+  if(buscaAberta) phone.querySelector('#busca-wrap').appendChild(buscaBlocoPanel());
   const postoSel = phone.querySelector('#posto-seletor');
   const postosVisiveis = (()=>{ const u = window.BF_USER; if(!u || u.papel==='admin') return POSTOS;
     const perm = [u.posto].concat(u.postos||[]).filter(x=>POSTOS.includes(x)); return POSTOS.filter(x=>perm.includes(x)); })();
