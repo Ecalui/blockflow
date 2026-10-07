@@ -310,11 +310,8 @@ const STATE = {
   /* motoristas e maquinistas vêm só do servidor (tabelas motoristas e maquinistas); não ficam no código */
   motoristas: [],
   maquinistas: [],
-  lecturers: [
-    { lecturer:'Silvano Sapalo', turno:'DIA', activo:true },
-    { lecturer:'Joaquim Tchicambi', turno:'NOITE', activo:true },
-    { lecturer:'Eurico Hossi', turno:'NOITE', activo:true },
-  ],
+  /* lecturers: removidos do código (o Daily Report deixa o campo em branco, a preencher à mão); voltam quando houver tabela no servidor */
+  lecturers: [],
   ultimo: { nome:'', matricula:'' },
   ultimoComboio: { maquinista:'', locomotiva:'', carruagem:'' },
   ultimaGuia: 0,
@@ -3463,6 +3460,8 @@ function viewProducao(){
     if(!b){ editArea.innerHTML = `<p style="font-size:12.5px;color:var(--rust);">Bloco ${edicaoNum} não encontrado.</p>`; return; }
     const numEditavel = b.local === 'Mingue' && b.estado!=='anulado';
     const numEdUI = numEditavel && !servidorLog();
+    /* anulação: só até à Chibia (na pedreira, ou parado na Chibia) — o servidor aplica a mesma regra */
+    const podeAnular = b.estado!=='anulado' && (b.estado==='no_mingue' || (b.estado==='confirmado' && b.local==='Chibia'));
     const clienteActual = clienteDeBloco(b);
     editArea.innerHTML = `
       <div style="border:1px solid var(--border-strong);border-radius:10px;padding:10px;margin-bottom:10px;">
@@ -3483,7 +3482,7 @@ function viewProducao(){
           <button id="btn-guardar-edit" class="btn primary small" style="flex:1;">Guardar correcção</button>
           <button id="btn-cancelar-edit" class="btn ghost small">Cancelar</button>
         </div>
-        ${(numEditavel) ? `<button id="btn-anular-bloco" class="btn ghost small" style="margin-top:8px;width:100%;border-color:var(--rust);color:var(--rust);">⊘ Anular bloco</button>` : ''}
+        ${(podeAnular) ? `<button id="btn-anular-bloco" class="btn ghost small" style="margin-top:8px;width:100%;border-color:var(--rust);color:var(--rust);">⊘ Anular bloco</button>` : ''}
         <p id="edit-warn" style="font-size:11.5px;margin:8px 0 0;display:none;color:var(--rust);"></p>
         ${(b.historico&&b.historico.length) ? `
           <p style="font-size:11px;color:var(--ink-mute);margin:10px 0 4px;">Histórico</p>
@@ -6116,6 +6115,13 @@ function viewLogistica(){
   }
 
   function renderEquipasSec(content){
+    /* com login, a lista de motoristas/maquinistas vem do servidor e é gerida lá: editar aqui só alteraria a cópia do aparelho e perder-se-ia na sincronização */
+    if(window.BF_USER){
+      content.innerHTML = `<div class="panel"><p class="section-title">Equipas</p>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px;">As listas de motoristas e maquinistas são geridas no servidor (Supabase). Alterações feitas aqui não ficariam gravadas.</p>
+        <p style="font-size:12px;color:var(--ink-mute);margin:0;">Para acrescentar, corrigir ou desativar alguém, pede ao administrador.</p></div>`;
+      return;
+    }
     content.innerHTML = `
       <div class="panel" style="margin-bottom:14px;">
         <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;" id="equipa-tipo-sel"></div>
@@ -6125,7 +6131,7 @@ function viewLogistica(){
       </div>
     `;
     const tipoWrap = content.querySelector('#equipa-tipo-sel');
-    [['Motoristas','motoristas'],['Maquinistas','maquinistas'],['Lecturers','lecturers']].forEach(([label,val])=>{
+    [['Motoristas','motoristas'],['Maquinistas','maquinistas']].forEach(([label,val])=>{
       const b = document.createElement('button');
       b.className = 'btn small ' + (logEquipaTipo===val ? 'primary' : 'ghost');
       b.textContent = label;
@@ -6362,7 +6368,7 @@ function viewLogistica(){
             <button id="btn-guardar-correcao" class="btn primary small" style="flex:1;">Guardar</button>
             <button id="btn-cancelar-correcao" class="btn ghost small">Cancelar</button>
           </div>
-          ${b.estado!=='anulado' ? `<button id="btn-anular-log" class="btn ghost small" style="margin-top:8px;width:100%;border-color:var(--rust);color:var(--rust);">⊘ Anular bloco</button>` : ''}
+          <p style="font-size:11.5px;color:var(--ink-mute);margin:8px 0 0;">A anulação de blocos é feita pela Produção (até à Chibia).</p>
           ${(b.historicoLogistica&&b.historicoLogistica.length) ? `
             <p style="font-size:11px;color:var(--ink-mute);margin:10px 0 4px;">Correcções anteriores</p>
             <div style="display:flex;flex-direction:column;gap:3px;">${b.historicoLogistica.slice().reverse().map(h=>`<p style="font-size:11px;color:var(--ink-soft);margin:0;">${h.quando} · ${h.campo}: ${h.de===null?'(vazio)':h.de} → ${h.para===null?'(vazio)':h.para}</p>`).join('')}</div>
