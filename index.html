@@ -291,6 +291,8 @@
    ============================================================ */
 const DENSIDADE_GRANITO = 2.80;
 
+/* escapa texto vindo do servidor ou digitado antes de o meter em HTML */
+function escH(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 const STATE = {
   meta: {
     autor: 'Eliazardo Tchissanda João Calui',
@@ -305,87 +307,16 @@ const STATE = {
   contentores: { porLevantar: 0, emPosse: 0, previstos: 0, navioContentores: '' },
   metaDoDia: { atual: 0, total: 0 },
   destinos: ['Chibia','Arimba','Caraculo','Saco-Mar','Sogester'],
-  motoristas: [
-    { nome:'Adriano Vicente Mateus', matricula:'LDA-73-92-AK', activo:true },
-    { nome:'Afonso Tropa', matricula:'LD-68-77-HQ', activo:true },
-    { nome:'Agostinho Tchandikua Muteka', matricula:'LDA-01-05-AN', activo:true },
-    { nome:'Albertino Pita-grós da Silva', matricula:'LDA-73-98-AK', activo:true },
-    { nome:'Alberto Monteiro da Rocha Soares', matricula:'LDA-01-04-AN', activo:true },
-    { nome:'Alberto Paulo', matricula:'LD-55-65-DX', activo:true },
-    { nome:'Américo Fredy Neves', matricula:'LD-37-50-IG', activo:true },
-    { nome:'Angelo Chingala Capuca', matricula:'LDA-99-92-AM', activo:true },
-    { nome:'António Dias Marques de Matos', matricula:'LD-68-75-HQ', activo:true },
-    { nome:'António João', matricula:'LD-99-93-AM', activo:true },
-    { nome:'António José Tchimbimbi', matricula:'LDA-42-85-AD', activo:true },
-    { nome:'António José Tuga', matricula:'LDA-10-11-AL', activo:true },
-    { nome:'Artur Kassinguilo', matricula:'LD-60-60-HT', activo:true },
-    { nome:'Avelino Camati Pintal Máquina', matricula:'LD-99-86-HX', activo:true },
-    { nome:'Avelino Cassinda Lino', matricula:'LD-93-24-HR', activo:true },
-    { nome:'Daniel Caleira Jango', matricula:'LDA-42-91-AD', activo:true },
-    { nome:'Daniel Lutique', matricula:'LDA-73-90-AK', activo:true },
-    { nome:'David António Feliciano Miguel', matricula:'LD-78-21-BN', activo:true },
-    { nome:'Domingos Calunji da Silva', matricula:'LD-61-23-FH', activo:true },
-    { nome:'Domingos Francisco Kiwaia', matricula:'LD-93-28-HR', activo:true },
-    { nome:'Eduardo Jamba Augusto', matricula:'LD-55-65-DX', activo:true },
-    { nome:'Evandro Alinho Patrocínio Duarte', matricula:'LD-93-25-HR', activo:true },
-    { nome:'Fernando Baptista Telela', matricula:'LDA-64-74-AN', activo:true },
-    { nome:'Fernando Angelino Tchialo', matricula:'LDA-73-89-AK', activo:true },
-    { nome:'Fernando Laurindo Wahunga', matricula:'LD-37-38-EK', activo:true },
-    { nome:'Francisco Candongo Carvalho Januário', matricula:'LD-88-84-HR', activo:true },
-    { nome:'Francisco Carreira Domingos', matricula:'LD-93-33-HR', activo:true },
-    { nome:'Frederico Feliciano Cassinda António', matricula:'LD-83-80-HU', activo:true },
-    { nome:'Gabriel Jacinto', matricula:'LD-98-97-IE', activo:true },
-    { nome:'Geraldo Mucuma Sambambi Miapia', matricula:'LDA-10-12-AL', activo:true },
-    { nome:'Halala Ricardo Oliveira Landana', matricula:'LD-78-86-HR', activo:true },
-    { nome:'Irineu José Victorino', matricula:'LD-68-76-HS', activo:true },
-    { nome:'Isidro dos Santos Inocente da Rosa', matricula:'LD-76-73-BF', activo:true },
-    { nome:'Jaime Orlando Gomes Soares', matricula:'LDA-42-84-AD', activo:true },
-    { nome:'João Batista Salomão', matricula:'LD-24-33-HT', activo:true },
-    { nome:'João Gomes Tchitala', matricula:'LD-60-89-HT', activo:true },
-    { nome:'Joaquim Cufa', matricula:'LD-60-88-HT', activo:true },
-    { nome:'José Chivela Tomás', matricula:'LD-58-51-HM', activo:true },
-    { nome:'José Jorge Simão Miranda', matricula:'LD-78-89-HR', activo:true },
-    { nome:'José Kambuale Sapalo João', matricula:'LDA-10-05-AL', activo:true },
-    { nome:'José Tchimbali Bango', matricula:'LD-93-23-HR', activo:true },
-    { nome:'Júlio Agostinho dos Santos', matricula:'LD-68-74-HS', activo:true },
-    { nome:'Kundi Paihama Tchitocola', matricula:'LD-60-82-HT', activo:true },
-    { nome:'Leonel António da Silva', matricula:'LD-99-01-IE', activo:true },
-    { nome:'Luís da Costa de Lima', matricula:'LD-93-30-HR', activo:true },
-    { nome:'Luís Pedro', matricula:'LD-24-68-HT', activo:true },
-    { nome:'Manuel Joaquim Tomás', matricula:'LD-78-88-HR', activo:true },
-    { nome:'Manuel Kinda Puki', matricula:'LD-31-60-HT', activo:true },
-    { nome:'Manuel Mario', matricula:'LD-31-25-HT', activo:true },
-    { nome:'Manuel Sampaio da Silva', matricula:'LD-93-22-HR', activo:true },
-    { nome:'Marcelino Kambiyet Tchipende Sico', matricula:'LD-03-31-CM', activo:true },
-    { nome:'Márcio Manuel Gonçalves Teixeira', matricula:'LDA-01-06-AN', activo:true },
-    { nome:'Mariano Abel Vitélio António Fernandes', matricula:'LDA-18-51-AC', activo:true },
-    { nome:'Mateus Kuvingua', matricula:'LD-17-20-HY', activo:true },
-    { nome:'Miltom Hiskia Julume', matricula:'LDA-42-86-AD', activo:true },
-    { nome:'Mizael Lussati Bento', matricula:'LDA-10-10-AL', activo:true },
-    { nome:'Moises Carreira Ribeiro', matricula:'LD-08-05-HD', activo:true },
-    { nome:'Nzinga Jaime Munzemba', matricula:'LD-78-85-HR', activo:true },
-    { nome:'Paulo Pedro Azevedo Reis', matricula:'LD-93-29-HR', activo:true },
-    { nome:'Pedro Jamba Chimuco', matricula:'LDA-82-90-AA', activo:true },
-    { nome:'Pedro Nambalo Cassamba', matricula:'LD-24-37-HT', activo:true },
-    { nome:'Rogério Veldemiro Marcelino da Silva', matricula:'LD-50-05-DZ', activo:true },
-    { nome:'Salomão Calimendo', matricula:'LD-30-07-HT', activo:true },
-    { nome:'Setélio Jorge Arrimar Ferreira', matricula:'LD-58-49-HM', activo:true },
-    { nome:'Tomás Cacunga Marcolino', matricula:'LD-31-62-HT', activo:true },
-    { nome:'Wilson Sachicaleco de Sousa Pontes', matricula:'LD-01-03-AN', activo:true },
-    { nome:'Yesse Jacob Tiago Magalhães', matricula:'LD-60-42-HT', activo:true },
-  ],
-  maquinistas: [
-    { maquinista:'Adão Chipita', locomotiva:'LOC-1404', activo:true },
-    { maquinista:'Silvino Kapapelo', locomotiva:'LOC-1409', activo:true },
-    { maquinista:'Armando Tchipa', locomotiva:'LOC-1412', activo:true },
-  ],
+  /* motoristas e maquinistas vêm só do servidor (tabelas motoristas e maquinistas); não ficam no código */
+  motoristas: [],
+  maquinistas: [],
   lecturers: [
     { lecturer:'Silvano Sapalo', turno:'DIA', activo:true },
     { lecturer:'Joaquim Tchicambi', turno:'NOITE', activo:true },
     { lecturer:'Eurico Hossi', turno:'NOITE', activo:true },
   ],
-  ultimo: { nome:'Pedro Nambalo Cassamba', matricula:'LD-24-37-HT' },
-  ultimoComboio: { maquinista:'Adão Chipita', locomotiva:'LOC-1404', carruagem:'VG-03' },
+  ultimo: { nome:'', matricula:'' },
+  ultimoComboio: { maquinista:'', locomotiva:'', carruagem:'' },
   ultimaGuia: 0,
   guiasUsadas: new Set([]),
 
@@ -422,7 +353,7 @@ const STATE = {
 
 /* ---- PERSISTÊNCIA LOCAL (ponte até ao Supabase) ---- */
 (function persistencia(){
-  const KEY='bf_estado_v1', KEYS=['clientes','processos','blocos','guias','guiasUsadas','ultimo','ultimoComboio','ultimaGuia','listasExportacao','missoes'];
+  const KEY='bf_estado_v1', KEYS=['clientes','processos','blocos','guias','guiasUsadas','ultimo','ultimoComboio','ultimaGuia','listasExportacao','missoes','motoristas','maquinistas'];
   const ser = ()=>{ const o={v:1, gravadoEm:new Date().toISOString()}; KEYS.forEach(k=>{ o[k] = STATE[k] instanceof Set ? [...STATE[k]] : STATE[k]; }); return JSON.stringify(o); };
   const aplicar = o=>{ KEYS.forEach(k=>{ if(o[k]===undefined) return; STATE[k] = (k==='guiasUsadas') ? new Set(o[k]) : o[k]; }); };
   try{ const raw=localStorage.getItem(KEY); if(raw) aplicar(JSON.parse(raw)); }catch(e){ console.warn('Estado local ilegível', e); }
@@ -3214,7 +3145,7 @@ function relMapaChibia(data){
     <th style="width:80px;">Peso</th>
   </tr></thead><tbody>`;
   linhas.forEach((l,i)=>{
-    corpo += `<tr><td class="n">${i+1}</td><td>${l.motorista}</td><td style="font-family:monospace;">${l.matricula}</td><td style="font-family:monospace;">${l.bloco}</td><td class="n">${l.guia||'—'}</td><td>${l.cliente}</td><td class="n">${l.pesoKg?formatarTon(l.pesoKg):'—'}</td></tr>`;
+    corpo += `<tr><td class="n">${i+1}</td><td>${escH(l.motorista)}</td><td style="font-family:monospace;">${escH(l.matricula)}</td><td style="font-family:monospace;">${l.bloco}</td><td class="n">${l.guia||'—'}</td><td>${l.cliente}</td><td class="n">${l.pesoKg?formatarTon(l.pesoKg):'—'}</td></tr>`;
   });
   corpo += `<tr class="tot"><td colspan="6">TOTAL</td><td class="n">${formatarTonTotal(totalKg)}</td></tr></tbody></table>`;
   return { corpo, landscape:false };
@@ -3902,13 +3833,13 @@ function resetForm(){
     modal: 'camiao', usandoUltimo: false, nome: null, matricula: null, guia: '',
     destino: null, origem: origens.length === 1 ? origens[0] : null, blocos: [''], poroes: [null],
     selecionados: [], guiaSel: null, trocaPessoa: false, filtroPendente: '', focoFiltro: false,
-    carruagem: '', missaoId: null, tipoSaidaChibia: 'granel', processoContentor: '', numContentor: '',
+    carruagem: '', missaoId: null, tipoSaidaChibia: 'granel', processoContentor: '', numContentor: '', externo: false, empresaExterna: '',
     mostrarTodosPendentes: false, mostrarOutrasOrigens: false,
   };
 }
 resetForm();
 function aplicarModal(modal){
-  formState.modal = modal; formState.usandoUltimo = false; formState.nome = null; formState.matricula = null; formState.carruagem = '';
+  formState.modal = modal; formState.usandoUltimo = false; formState.nome = null; formState.matricula = null; formState.carruagem = ''; formState.externo = false; formState.empresaExterna = '';
   const cap = capacidadeDe(modal);
   if(formState.selecionados.length > cap) formState.selecionados = formState.selecionados.slice(0, cap);
   if(formState.blocos.length > cap) formState.blocos = formState.blocos.slice(0, cap);
@@ -4165,7 +4096,7 @@ function viewConferente(){
       switch(x.id){
         case 'origem': return formState.origem || '';
         case 'guiaSel': { const v = viagemSelecionada(); return formState.guiaSel==='PRODUCAO' ? 'Produção' : (v && v.guia ? 'Guia '+v.guia : 'Guia escolhida'); }
-        case 'pessoa': return [formState.nome, formState.matricula].filter(Boolean).join(' · ');
+        case 'pessoa': return [formState.nome, formState.matricula, formState.externo?'externo':''].filter(Boolean).join(' · ');
         case 'destino': { const b = area.querySelector('#destinos .btn.primary'); return b ? b.textContent : String(formState.destino||''); }
         case 'missao': { const m = missaoPorId(formState.missaoId); return m ? m.navio : ''; }
       }
@@ -4298,13 +4229,22 @@ function viewConferente(){
           <p class="section-title" data-passo="pessoa">${labelPessoa}</p>
           <div style="position:relative;margin-bottom:6px;"><input id="input-busca-pessoa" placeholder="${placeholderBusca}" style="width:100%;height:46px;border-radius:10px;border:2px solid var(--slate);padding:0 14px;font-size:14px;font-weight:500;background:var(--surface);color:var(--ink);" /></div>
           <div id="sugestoes-pessoa" style="margin-bottom:14px;"></div>
-          ${formState.nome ? `
+          ${formState.externo ? `
+            <div style="border:1px solid var(--amber);background:var(--amber-bg);border-radius:8px;padding:10px;margin-bottom:14px;">
+              <p style="font-size:11px;color:var(--ink-mute);margin:0 0 6px;">Motorista externo / viatura alugada — não fica na lista da empresa:</p>
+              <input id="ext-nome" value="${escH(formState.nome)}" placeholder="Nome do motorista" autocomplete="off" style="width:100%;height:40px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-size:14px;margin-bottom:6px;background:var(--surface);color:var(--ink);" />
+              <input id="ext-matricula" value="${escH(formState.matricula)}" placeholder="Matrícula da viatura (ex: LD-12-34-AB)" autocomplete="off" autocapitalize="characters" style="width:100%;height:40px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-size:14px;font-family:var(--mono);margin-bottom:6px;background:var(--surface);color:var(--ink);" />
+              <input id="ext-empresa" value="${escH(formState.empresaExterna)}" placeholder="Empresa ou proprietário (opcional)" autocomplete="off" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-size:13px;margin-bottom:8px;background:var(--surface);color:var(--ink);" />
+              <button id="btn-ext-voltar" type="button" class="btn ghost small">Voltar à lista da empresa</button>
+            </div>
+          ` : formState.nome ? `
             <div style="border:1px solid var(--moss);background:var(--moss-bg);border-radius:8px;padding:8px 10px;margin-bottom:14px;">
               <p style="font-size:11px;color:var(--ink-mute);margin:0 0 4px;">Seleccionado — confirma:</p>
-              <p style="font-size:13px;font-weight:600;color:var(--ink);margin:0 0 6px;">${formState.nome}</p>
-              <input id="input-matricula-confirm" value="${formState.matricula||''}" placeholder="Matrícula / locomotiva" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-size:13px;font-family:var(--mono);background:var(--surface);color:var(--ink);" />
+              <p style="font-size:13px;font-weight:600;color:var(--ink);margin:0 0 6px;">${escH(formState.nome)}</p>
+              <input id="input-matricula-confirm" value="${escH(formState.matricula||'')}" placeholder="Matrícula / locomotiva" style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-size:13px;font-family:var(--mono);background:var(--surface);color:var(--ink);" />
             </div>
           ` : `<p style="font-size:12px;color:var(--amber);margin:0 0 14px;">⚠ Ainda não seleccionaste ${ehComboio?'o maquinista':'o motorista'}.</p>`}
+          ${(!ehComboio && !formState.externo) ? `<button id="btn-externo" type="button" class="btn ghost small" style="margin:0 0 14px;">Motorista externo / viatura alugada</button>` : ''}
           ${ehComboio ? `<p class="section-title" data-passo="carruagem">Carruagem</p><input id="input-carruagem" value="${formState.carruagem||''}" placeholder="Ex: VG-07" style="width:100%;height:38px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-size:13px;font-family:var(--mono);margin-bottom:14px;background:var(--surface);color:var(--ink);" />` : ''}
         `}
       ` : `<p style="font-size:12px;color:var(--ink-mute);margin:0 0 14px;">Embarque num navio — não pede motorista.</p>`}
@@ -4432,7 +4372,7 @@ function viewConferente(){
       });
     }
     const btnTroca = area.querySelector('#btn-troca-pessoa');
-    if(btnTroca){ btnTroca.onclick = ()=>{ formState.trocaPessoa = true; formState.nome = null; formState.matricula = null; renderForm(); }; }
+    if(btnTroca){ btnTroca.onclick = ()=>{ formState.trocaPessoa = true; formState.nome = null; formState.matricula = null; formState.externo = false; formState.empresaExterna = ''; renderForm(); }; }
     if(escolherPessoa){
       const inputPessoa = area.querySelector('#input-busca-pessoa');
       const sugPessoa = area.querySelector('#sugestoes-pessoa');
@@ -4442,21 +4382,33 @@ function viewConferente(){
         const row = document.createElement('div');
         row.className = 'row'; row.style.cursor = 'pointer';
         if(destaque){ row.style.border = '2px solid var(--moss)'; row.style.background = 'var(--moss-bg)'; }
-        row.innerHTML = `<span class="num" style="font-family:var(--sans);font-weight:600;">${destaque?'★ ':''}${m.nome}</span><span class="meta">${m.ref}${destaque?' · último usado':''}</span>`;
-        row.onclick = ()=>{ if(destaque){ preencherUltimo(formState.modal); } else { formState.nome=m.nome; formState.matricula=m.ref; formState.usandoUltimo=false; } renderForm(); };
+        row.innerHTML = `<span class="num" style="font-family:var(--sans);font-weight:600;">${destaque?'★ ':''}${escH(m.nome)}</span><span class="meta">${escH(m.ref)}${destaque?' · último usado':''}</span>`;
+        row.onclick = ()=>{ if(destaque){ preencherUltimo(formState.modal); } else { formState.nome=m.nome; formState.matricula=m.ref; formState.usandoUltimo=false; } formState.externo=false; formState.empresaExterna=''; renderForm(); };
         return row;
       };
       const mostrarSugestoesPessoa = (q)=>{
         sugPessoa.innerHTML = '';
         const termo = (q||'').trim().toLowerCase();
-        if(!termo){ sugPessoa.appendChild(montarLinhaPessoa(ultimoObj, true)); return; }
+        if(!termo){ if(ultimoObj.nome) sugPessoa.appendChild(montarLinhaPessoa(ultimoObj, true)); else if(!fontePessoa.length){ sugPessoa.innerHTML = '<p style="font-size:12px;color:var(--ink-mute);margin:0;">Lista da empresa ainda não carregada. Toca em Atualizar ou usa «Motorista externo».</p>'; } return; }
         const encontrados = fontePessoa.filter(m=> m.nome.toLowerCase().includes(termo) || m.ref.toLowerCase().includes(termo.replace(/\s/g,''))).slice(0,4);
-        if(encontrados.length===0){ sugPessoa.innerHTML = '<p style="font-size:12px;color:var(--ink-mute);margin:0;">Nenhum resultado.</p>'; return; }
+        if(encontrados.length===0){ sugPessoa.innerHTML = '<p style="font-size:12px;color:var(--ink-mute);margin:0;">Nenhum resultado. Se não é da empresa, usa «Motorista externo / viatura alugada».</p>'; return; }
         encontrados.forEach(m=> sugPessoa.appendChild(montarLinhaPessoa(m, false)));
         const dica = document.createElement('p'); dica.style.cssText = 'font-size:12px;color:var(--amber);margin:6px 0 0;'; dica.textContent = 'Toca num nome da lista para o escolher.'; sugPessoa.appendChild(dica);
       };
       inputPessoa.addEventListener('input', ()=> mostrarSugestoesPessoa(inputPessoa.value));
       mostrarSugestoesPessoa('');
+      const btnExt = area.querySelector('#btn-externo');
+      if(btnExt) btnExt.onclick = ()=>{ formState.externo = true; formState.usandoUltimo = false; formState.nome = ''; formState.matricula = ''; formState.empresaExterna = ''; renderForm(); setTimeout(()=>{ const i = document.getElementById('ext-nome'); if(i) i.focus(); }, 80); };
+      if(formState.externo){
+        if(inputPessoa.parentElement) inputPessoa.parentElement.style.display = 'none';
+        sugPessoa.style.display = 'none';
+        const eN = area.querySelector('#ext-nome'), eM = area.querySelector('#ext-matricula'), eE = area.querySelector('#ext-empresa');
+        if(eN) eN.addEventListener('input', ()=>{ formState.nome = eN.value.trim(); });
+        if(eM) eM.addEventListener('input', ()=>{ eM.value = eM.value.toUpperCase(); formState.matricula = eM.value.trim(); });
+        if(eE) eE.addEventListener('input', ()=>{ formState.empresaExterna = eE.value.trim(); });
+        const bV = area.querySelector('#btn-ext-voltar');
+        if(bV) bV.onclick = ()=>{ formState.externo = false; formState.empresaExterna = ''; formState.nome = null; formState.matricula = null; renderForm(); };
+      }
     }
     if(!entrada && (!noPorto || (tipoCargaAtual && tipoCargaAtual!=='misto'))){
       const destWrap = area.querySelector('#destinos');
@@ -4748,6 +4700,8 @@ function viewConferente(){
           modal: ehComboio ? 'comboio' : 'camiao',
           motorista: (!embarque && !ehComboio) ? formState.nome : null,
           viatura: (!embarque && !ehComboio) ? formState.matricula : null,
+          externo: (!embarque && !ehComboio && formState.externo) ? true : false,
+          empresa_externa: (!embarque && !ehComboio && formState.externo && formState.empresaExterna) ? formState.empresaExterna : null,
           maquinista: (!embarque && ehComboio) ? formState.nome : null,
           locomotiva: (!embarque && ehComboio) ? formState.matricula : null,
           carruagem: (!embarque && ehComboio) ? formState.carruagem.trim() : null,
@@ -4780,7 +4734,7 @@ function viewConferente(){
         const nRec = (res.recusados||[]).length;
         if(!embarque){
           if(ehComboio) STATE.ultimoComboio = { maquinista: formState.nome, locomotiva: formState.matricula, carruagem: formState.carruagem.trim() };
-          else STATE.ultimo = { nome: formState.nome, matricula: formState.matricula };
+          else if(!formState.externo) STATE.ultimo = { nome: formState.nome, matricula: formState.matricula };
         }
         const verbo = embarque ? 'registado(s)' : (entrada ? 'confirmado(s)' : 'em saída');
         if(res.duplicado || nRec){ showToast(res.duplicado ? 'Esta confirmação já estava gravada.' : `${nAc} bloco(s) ${verbo} e gravado(s) · ${nRec} recusado(s): ${res.recusados[0].bloco} (${res.recusados[0].motivo})`, nRec ? 'err' : 'ok'); }
@@ -4825,6 +4779,7 @@ function viewConferente(){
         carruagem: (!embarque && formState.modal==='comboio') ? formState.carruagem.trim() : null,
         motorista: embarque ? null : formState.nome,
         viatura: embarque ? null : formState.matricula,
+        externo: (!embarque && formState.modal!=='comboio' && formState.externo) ? true : false,
         missaoId: embarque ? formState.missaoId : null,
         poroes: (embarque && formState.destino==='embarcado') ? poraoPorNumero : null,
         blocos: blocosPreenchidos.slice(), pesoKg: pesoTotal,
@@ -4843,7 +4798,7 @@ function viewConferente(){
       }
       if(!embarque){
         if(formState.modal==='comboio') STATE.ultimoComboio = { maquinista: formState.nome, locomotiva: formState.matricula, carruagem: formState.carruagem.trim() };
-        else STATE.ultimo = { nome: formState.nome, matricula: formState.matricula };
+        else if(!formState.externo) STATE.ultimo = { nome: formState.nome, matricula: formState.matricula };
       }
       if(entrada) STATE.metaDoDia.atual += blocosPreenchidos.length;
       showToast(
@@ -5038,7 +4993,7 @@ function viewTransportes(){
     else listaViaturas.forEach(([viatura,v])=>{
       const row = document.createElement('div');
       row.className = 'row';
-      row.innerHTML = `<span class="num" style="font-family:var(--mono);font-weight:600;">${viatura}</span><span class="meta">${v.blocos} bloco(s) · ${formatarTonTotal(v.peso)}</span>`;
+      row.innerHTML = `<span class="num" style="font-family:var(--mono);font-weight:600;">${escH(viatura)}</span><span class="meta">${v.blocos} bloco(s) · ${formatarTonTotal(v.peso)}</span>`;
       porViatura.appendChild(row);
     });
   } else if(trSeccao==='pessoa'){
@@ -5660,8 +5615,8 @@ function viewLogistica(){
       const head = document.createElement('div');
       head.className = 'row';
       const ic = guiaEncontrada.tipo==='embarque' ? '🚢' : (guiaEncontrada.modal==='comboio' ? '🚂' : '🚛');
-      const quem = guiaEncontrada.motorista ? (' · '+guiaEncontrada.motorista) : '';
-      const viatura = guiaEncontrada.viatura ? (' · '+guiaEncontrada.viatura) : '';
+      const quem = guiaEncontrada.motorista ? (' · '+escH(guiaEncontrada.motorista)) : '';
+      const viatura = guiaEncontrada.viatura ? (' · '+escH(guiaEncontrada.viatura)) : '';
       const peso = guiaEncontrada.pesoKg ? (' · '+formatarTonTotal(guiaEncontrada.pesoKg)) : '';
       head.innerHTML = `<span class="num">${ic} Guia ${q}${quem}${viatura}</span><span class="meta">${guiaEncontrada.de} → ${guiaEncontrada.para} · ${guiaEncontrada.data} ${guiaEncontrada.hora} · ${guiaEncontrada.blocos.length} bloco(s)${peso}</span>`;
       res.appendChild(head);
@@ -6745,7 +6700,7 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
       STATE.missoes = pr.filter(p=>p.navio).map(p=>({ id:p.codigo, navio:p.navio, tipo:p.tipo, local:p.local_carregamento, meta:p.meta, metaTon:+p.meta_ton||0,
         dataCarregamento:fmt(p.data_embarque), dataPosicionamento:fmt(p.data_posicionamento), estado:p.estado==='activo'?'activa':'encerrada' }));
       if(mo.length) STATE.motoristas = mo.map(m=>({ nome:m.nome, matricula:m.matricula, activo:m.activo }));
-      if(ma.length) STATE.maquinistas = ma.map(m=>({ nome:m.nome, activo:m.activo }));
+      if(ma.length) STATE.maquinistas = ma.map(m=>({ maquinista:m.nome||m.maquinista, locomotiva:m.locomotiva||m.loco||'', nome:m.nome||m.maquinista, activo:m.activo }));
       if(!(auto && aEscrever())) render();
       window.BF_ULTIMO_SYNC = Date.now(); if(window.bfFila) window.bfFila.desenhar();
       const d=new Date(); if(!auto) aviso(`🔄 Atualizado às ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')} · ${STATE.blocos.length} blocos · ${STATE.processos.length} processos`);
