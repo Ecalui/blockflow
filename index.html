@@ -191,6 +191,14 @@
   html,body{overscroll-behavior:none;}
   body{overflow-x:hidden;touch-action:pan-y pinch-zoom;}
   body.kiosk .topbar .roles{display:none;}
+  /* ===== MODO OBSERVADOR: só consulta ===== */
+  body.observador #btn-confirmar, body.observador #btn-add-bloco, body.observador #btn-add-bloco-porto,
+  body.observador #btn-troca-pessoa, body.observador #btn-externo, body.observador #btn-confirmar-proc,
+  body.observador #lib-ok, body.observador #lib-off, body.observador #lib-ref, body.observador #lib-txt,
+  body.observador #eq-guardar, body.observador #btn-nova-equipa,
+  body.observador #btn-guardar-edit, body.observador #btn-anular-bloco,
+  body.observador .panel:has(#btn-guardar-correcao){display:none !important;}
+
   @media (min-width:641px){
     .phone{border-radius:12px;}
     .phone.phone-web{border-radius:12px;}
@@ -4039,7 +4047,7 @@ function viewConferente(){
   phone.querySelector('#btn-lupa').onclick = ()=>{ buscaAberta = !buscaAberta; render(); if(buscaAberta) setTimeout(()=>{ const i = document.getElementById('busca-conf'); if(i) i.focus(); }, 80); };
   if(buscaAberta) phone.querySelector('#busca-wrap').appendChild(buscaBlocoPanel());
   const postoSel = phone.querySelector('#posto-seletor');
-  const postosVisiveis = (()=>{ const u = window.BF_USER; if(!u || u.papel==='admin') return POSTOS;
+  const postosVisiveis = (()=>{ const u = window.BF_USER; if(!u || u.papel==='admin' || u.papel==='observador') return POSTOS;
     const perm = [u.posto].concat(u.postos||[]).filter(x=>POSTOS.includes(x)); return POSTOS.filter(x=>perm.includes(x)); })();
   if(postosVisiveis.length<=1) postoSel.style.display='none';
   postosVisiveis.forEach(p=>{
@@ -6482,6 +6490,12 @@ function render(){
   else if(role==='diretor') node = viewDiretor();
   else node = viewLogistica();
   $view.appendChild(node);
+  if(window.BF_USER && window.BF_USER.papel==='observador' && role==='producao'){
+    const body = node.querySelector('.phone-body');
+    if(body){ const kids=[...body.children]; const idx = kids.findIndex(k=>k.nextElementSibling && k.nextElementSibling.id==='recent-list');
+      kids.forEach((k,i)=>{ if(i<idx) k.style.display='none'; });
+      const n = document.createElement('p'); n.style.cssText='font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;'; n.textContent='O registo de produção está desativado no modo observador.'; body.insertBefore(n, body.firstChild); }
+  }
   renderSalaFab();
 }
 
@@ -6565,7 +6579,7 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
   const $ = id=>document.getElementById(id), ov=$('login-overlay'), CK='bf_perfil_v1';
   if(!BF_URL || !BF_KEY){ ov.remove(); return; }            // sem configuração: modo local, como antes
   const ROLE_MAP = {producao:'producao',conferente:'conferente',transportes:'transportes',direcao:'diretor',logistica:'logistica'};
-  const NOMES = {producao:'Produção',conferente:'Conferente',transportes:'Transportes',direcao:'Direção',logistica:'Logística',admin:'Administrador'};
+  const NOMES = {producao:'Produção',conferente:'Conferente',transportes:'Transportes',direcao:'Direção',logistica:'Logística',admin:'Administrador',observador:'Observador'};
   const sb = (typeof supabase!=='undefined') ? supabase.createClient(BF_URL, BF_KEY, {auth:{persistSession:true,autoRefreshToken:true}}) : null;
   window.sb = sb;
   const cache = ()=>{ try{ return JSON.parse(localStorage.getItem(CK)||'null'); }catch(e){ return null; } };
@@ -6574,15 +6588,29 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
   const mostrarForm = ()=>{ sub('Entra com a tua conta HMGranitos.'); $('login-form').style.display='block'; };
 
   async function carregarPerfil(uid){
-    let r = await sb.from('perfis').select('nome,papel,posto,postos,activo').eq('user_id',uid).maybeSingle();
-    if(r.error) r = await sb.from('perfis').select('nome,papel,posto,activo').eq('user_id',uid).maybeSingle();   // coluna «postos» ainda não criada
+    let r = await sb.from('perfis').select('nome,papel,posto,postos,activo,valido_ate').eq('user_id',uid).maybeSingle();
+    if(r.error) r = await sb.from('perfis').select('nome,papel,posto,activo,valido_ate').eq('user_id',uid).maybeSingle();   // coluna «postos» ainda não criada
     if(r.error) throw r.error;
     return r.data ? {...r.data, user_id:uid} : null;
   }
+  const expirou = p=> !!(p && p.papel==='observador' && p.valido_ate && new Date(p.valido_ate) <= new Date());
+  const dtPT = iso=> new Date(iso).toLocaleDateString('pt-PT',{timeZone:'Africa/Luanda'});
   function entrar(p, offline){
+    if(expirou(p)){ try{ localStorage.removeItem(CK); }catch(e){} semAcesso('O acesso de observador expirou em '+dtPT(p.valido_ate)+'. Fala com o administrador para renovar.'); return; }
     try{ localStorage.setItem(CK, JSON.stringify(p)); }catch(e){}
     window.BF_USER = p;
-    if(p.papel!=='admin'){ role = ROLE_MAP[p.papel] || 'conferente'; document.body.classList.add('kiosk'); }
+    if(p.papel==='observador'){
+      document.body.classList.add('observador');
+      /* só leitura também no cliente: qualquer escrita excepto a mensagem da Sala é recusada (o servidor recusa na mesma) */
+      if(window.sb && !window.sb.__obs){ const orig = window.sb.rpc.bind(window.sb); window.sb.__obs = true;
+        window.sb.rpc = (fn,...a)=> fn==='enviar_mensagem' ? orig(fn,...a) : Promise.resolve({data:null,error:{message:'Modo observador: só consulta.'}}); }
+      const vw = document.getElementById('view');
+      if(vw && !document.getElementById('obs-banner')){ const bn = document.createElement('div'); bn.id='obs-banner';
+        bn.style.cssText='background:#FFF4D6;border:1px solid #E8C766;color:#6B4E00;border-radius:8px;padding:8px 12px;font-size:12.5px;margin:0 0 12px;';
+        bn.textContent='👁 Modo observador — só consulta. Podes escrever na Sala (botão 💬).'+(p.valido_ate?' Acesso válido até '+dtPT(p.valido_ate)+'.':'');
+        vw.parentNode.insertBefore(bn, vw); }
+      if(p.valido_ate){ const ms = new Date(p.valido_ate) - Date.now(); if(ms>0 && ms<2147000000) setTimeout(()=>location.reload(), ms+1500); }
+    } else if(p.papel!=='admin'){ role = ROLE_MAP[p.papel] || 'conferente'; document.body.classList.add('kiosk'); }
     if(p.papel==='conferente'){ let ult=null; try{ ult = localStorage.getItem('bf_posto_'+p.user_id); }catch(e){}
       const perm = [p.posto].concat(p.postos||[]).filter(Boolean);
       postoAtivo = (ult && perm.includes(ult)) ? ult : (p.posto || perm[0] || 'Chibia'); }
@@ -6899,7 +6927,7 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
   const mapear = r=>({ id:r.id, client_id:r.client_id, processo:r.processo, autor:r.funcao||'—', nome:r.autor_nome||null, autorId:r.autor, texto:r.texto, quando:fmt(r.criado_em), sistema:!!r.sistema });
   const guardar = ()=>{ try{ localStorage.setItem(KS, JSON.stringify(STATE.sala||[])); }catch(e){} };
   const gerarId = ()=> (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c=>{ const r=Math.random()*16|0; return (c==='x'?r:(r&3|8)).toString(16); });
-  const ROTULO = { conferente:null, logistica:'Logística', transportes:'Transporte', direcao:'Direção', producao:'Produção', admin:'Admin' };
+  const ROTULO = { conferente:null, logistica:'Logística', transportes:'Transporte', direcao:'Direção', producao:'Produção', admin:'Admin', observador:'Observador' };
   let primeira = true, maxId = 0, emPuxar = false, canal = null;
   const aberta = ()=>{ const o = document.getElementById('sala-overlay'); return !!o && o.style.display==='block'; };
   function naoLidas(){ const L = J(KL(),'{}'); return (STATE.sala||[]).filter(m=>m.id && m.autorId!==eu() && m.id>(L[m.processo]||0)).length; }
