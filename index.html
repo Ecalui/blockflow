@@ -5461,6 +5461,8 @@ function processoDe(){
 }
 const ESTADOS_FINAIS_PORTO = ['embarcado','entregue_sogester'];
 let logSeccao = 'geral';
+let missaoSel = null;
+let missaoAssist = null;
 let logDetalheProcesso = null;
 let logDetalheCliente = null;
 let logHubDetalhe = 'Sogester';
@@ -5479,6 +5481,7 @@ const LOG_SECCOES = [
   { id:'movimentos',  label:'Movimentações' },
   { id:'contentores', label:'Contentores' },
   { id:'liberacao',   label:'Liberação (Exportação)' },
+  { id:'missoes',     label:'Missões (navios)' },
   { id:'corrigir',    label:'Corrigir bloco' },
   { id:'equipas',     label:'Equipas' },
   { id:'relatorios',  label:'Relatórios' },
@@ -5692,6 +5695,7 @@ function viewLogistica(){
   else if(logSeccao==='movimentos') renderMovimentosSec(content);
   else if(logSeccao==='contentores') renderContentoresSec(content);
   else if(logSeccao==='liberacao') renderLiberacaoSec(content);
+  else if(logSeccao==='missoes') renderMissoesSec(content);
   else if(logSeccao==='corrigir') renderCorrigirSec(content);
   else if(logSeccao==='equipas') renderEquipasSec(content);
   else if(logSeccao==='relatorios') renderRelatoriosSec(content);
@@ -6102,6 +6106,280 @@ function viewLogistica(){
       row.innerHTML = `<span class="num">${r.ref}</span><span class="meta">${r.modo==='liberar'?'liberou':'retirou'} ${r.aplicados}/${r.total}${r.naoEncontrados.length?(' · '+r.naoEncontrados.length+' não encontrado(s)'):''} · ${r.quando}</span>`;
       hw.appendChild(row);
     });
+  }
+
+  function renderMissoesSec(content){
+    const papel = window.BF_USER && window.BF_USER.papel;
+    const online = !!(window.sb && window.BF_USER);
+    const pode = online && ['admin','logistica'].includes(papel);
+    const ms = STATE.missoesNovas || [];
+    const dPT = d=> d ? String(d).slice(0,10).split('-').reverse().join('/') : '—';
+    const hoje = new Date().toLocaleDateString('en-CA',{timeZone:'Africa/Luanda'});
+    const diasAte = d=> d ? Math.round((new Date(String(d).slice(0,10)+'T00:00:00Z') - new Date(hoje+'T00:00:00Z'))/86400000) : null;
+    const inp = 'width:100%;border-radius:8px;border:1px solid var(--border-strong);padding:8px 10px;font-size:13px;background:var(--surface);color:var(--ink);margin-bottom:8px;';
+    const erroH = t=>`<p style="font-size:12.5px;color:var(--rust);margin:6px 0 0;">${escH(t)}</p>`;
+    const msgErro = e=> 'Não gravou no servidor: '+String((e && e.message) || e);
+    const sincronizar = async ()=> window.bfSincronizar ? await window.bfSincronizar(false) : false;
+    const nomeParque = b=> parqueDe(b) || (b.estado==='embarcado' ? 'Embarcado' : (b.estado==='a_caminho' ? 'Em trânsito' : 'Sem local'));
+
+    const resumo = m=>{
+      const bl = STATE.blocos.filter(b=>b.missaoNovaId===m.id && b.estado!=='anulado');
+      const emb = bl.filter(b=>b.estado==='embarcado').length;
+      const sog = bl.filter(b=>parqueDe(b)==='Sogester').length;
+      const lib = bl.filter(b=>b.liberado).length;
+      const porParque = {};
+      bl.forEach(b=>{ const k = nomeParque(b); porParque[k] = (porParque[k]||0)+1; });
+      const pos = emb + sog;
+      const falta = Math.max(0, m.meta_blocos - pos);
+      const dias = diasAte(m.prazo_posicionamento);
+      let risco = 'ok', txt;
+      if(m.estado!=='activo'){ txt = 'Encerrada'; }
+      else if(falta===0){ txt = 'Meta atingida'; }
+      else if(dias===null){ txt = 'Sem prazo definido'; }
+      else if(dias<0){ risco = 'danger'; txt = 'Prazo ultrapassado'; }
+      else if(dias<=7){ risco = 'warn'; txt = 'Prazo em '+dias+' dia(s)'; }
+      else { txt = 'Prazo em '+dias+' dias'; }
+      return { bl, emb, sog, lib, porParque, pos, falta, dias, risco, txt, pesoKg: bl.reduce((s,b)=>s+(b.pesoKg||0),0) };
+    };
+
+    function desenharLista(){
+      const ordenadas = ms.filter(m=>m.estado==='activo').concat(ms.filter(m=>m.estado!=='activo'));
+      content.innerHTML = `
+        <div class="panel">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+            <p class="section-title" style="margin:0;">Missões de embarque <span style="font-weight:400;color:var(--ink-mute);">— um navio, vários processos</span></p>
+            ${pode ? '<button class="btn primary small" id="mis-nova">＋ Nova missão</button>' : ''}
+          </div>
+          <div id="mis-lista"></div>
+          <p style="font-size:11.5px;color:var(--ink-mute);margin:12px 0 0;">Nesta fase a missão planeia: meta, prazos e listas de blocos. O embarque no cais continua a escolher o processo com navio atribuído.</p>
+        </div>`;
+      const lw = content.querySelector('#mis-lista');
+      if(!ordenadas.length){
+        lw.innerHTML = `<p style="font-size:12.5px;color:var(--ink-mute);margin:0;">${online ? 'Ainda não há missões. Cria a primeira com «Nova missão».' : 'Disponível quando estiveres ligado ao servidor.'}</p>`;
+      }
+      ordenadas.forEach(m=>{
+        const r = resumo(m);
+        const pct = m.meta_blocos ? Math.min(100, Math.round(100*r.pos/m.meta_blocos)) : 0;
+        const card = document.createElement('div');
+        card.className = 'row expandivel';
+        card.style.cssText = 'flex-direction:column;align-items:stretch;gap:6px;margin-bottom:8px;';
+        card.innerHTML = `
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span class="num">🚢 ${escH(m.navio)}</span><span class="badge ${r.risco}">${escH(r.txt)}</span>
+          </div>
+          <div class="bar-outer"><div class="bar-inner ${r.risco==='ok' ? 'ok' : 'warn'}" style="width:${pct}%;"></div></div>
+          <span class="meta" style="text-align:left;">${r.pos}/${m.meta_blocos} posicionados · ${r.emb} embarcados · ${r.bl.length} na missão · embarque ${dPT(m.data_embarque)}</span>`;
+        card.onclick = ()=>{ missaoSel = m.id; missaoAssist = null; renderMissoesSec(content); };
+        lw.appendChild(card);
+      });
+      const bn = content.querySelector('#mis-nova');
+      if(bn) bn.onclick = ()=>{ missaoAssist = 'nova'; renderMissoesSec(content); };
+    }
+
+    function desenharNova(){
+      const locais = ['Sogester','Saco-Mar','Caraculo','Arimba','Chibia'];
+      content.innerHTML = `
+        <div class="panel">
+          <button class="btn ghost small" id="mn-voltar">← Missões</button>
+          <p class="section-title" style="margin-top:10px;">Nova missão</p>
+          <p style="font-size:12px;color:var(--ink-mute);margin:0 0 10px;">Passo 1 de 2 · cabeçalho do navio. A seguir adicionas as listas de blocos da Exportação.</p>
+          <input id="mn-navio" placeholder="Navio (ex: MV Atlantic)" maxlength="60" style="${inp}height:38px;" />
+          <div style="display:flex;gap:8px;">
+            <select id="mn-tipo" style="${inp}height:38px;flex:1;"><option value="granel">Granel</option><option value="contentor">Contentor</option></select>
+            <select id="mn-local" style="${inp}height:38px;flex:1;">${locais.map(l=>`<option>${l}</option>`).join('')}</select>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <input id="mn-mb" inputmode="numeric" placeholder="Meta (blocos)" style="${inp}height:38px;flex:1;" />
+            <input id="mn-mt" inputmode="decimal" placeholder="Meta (toneladas, opcional)" style="${inp}height:38px;flex:1;" />
+          </div>
+          <label style="font-size:11.5px;color:var(--ink-mute);">Prazo de posicionamento (blocos na Sogester até)</label>
+          <input id="mn-pp" type="date" style="${inp}height:38px;" />
+          <label style="font-size:11.5px;color:var(--ink-mute);">Data de embarque</label>
+          <input id="mn-de" type="date" style="${inp}height:38px;" />
+          <button class="btn success" id="mn-ok" style="width:100%;height:40px;">Criar missão</button>
+          <div id="mn-res" style="margin-top:10px;"></div>
+        </div>`;
+      content.querySelector('#mn-voltar').onclick = ()=>{ missaoAssist = null; renderMissoesSec(content); };
+      content.querySelector('#mn-ok').onclick = async ()=>{
+        const g = id=> content.querySelector(id).value.trim();
+        const p = { navio:g('#mn-navio'), tipo:g('#mn-tipo'), local_carregamento:g('#mn-local'), meta_blocos:g('#mn-mb'),
+                    meta_ton:g('#mn-mt'), prazo_posicionamento:g('#mn-pp'), data_embarque:g('#mn-de') };
+        const res = content.querySelector('#mn-res'), btn = content.querySelector('#mn-ok');
+        if(navigator.onLine===false){ res.innerHTML = erroH('Sem rede — tenta quando tiveres ligação.'); return; }
+        btn.disabled = true; res.innerHTML = '<p style="font-size:12.5px;color:var(--ink-mute);">A criar…</p>';
+        try{
+          const {data,error} = await window.sb.rpc('criar_missao', { p });
+          if(error) throw error;
+          if(data && data.erro){ res.innerHTML = erroH(data.erro); btn.disabled = false; return; }
+          missaoAssist = null; missaoSel = data.id;
+          const ok = await sincronizar();
+          if(!ok){ missaoSel = null; renderMissoesSec(content);
+            content.insertAdjacentHTML('afterbegin','<p style="font-size:12.5px;color:var(--moss);font-weight:600;">Missão criada. Carrega em «Atualizar» para a ver.</p>'); }
+        }catch(e){ res.innerHTML = erroH(msgErro(e)); btn.disabled = false; }
+      };
+    }
+
+    function desenharDetalhe(m){
+      const r = resumo(m);
+      const ativa = m.estado==='activo';
+      content.innerHTML = `
+        <div class="panel">
+          <button class="btn ghost small" id="md-voltar">← Missões</button>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0 4px;">
+            <p class="section-title" style="margin:0;">🚢 ${escH(m.navio)}</p><span class="badge ${r.risco}">${escH(r.txt)}</span>
+          </div>
+          <p style="font-size:12px;color:var(--ink-mute);margin:0 0 12px;">${escH(m.tipo)} · carregamento em ${escH(m.local_carregamento)} · posicionar até ${dPT(m.prazo_posicionamento)} · embarque ${dPT(m.data_embarque)}</p>
+          <div class="grid g3" style="margin-bottom:12px;">
+            <div class="stat"><p class="label">Meta</p><p class="value">${m.meta_blocos}</p><p class="sub">${m.meta_ton!=null ? escH(String(m.meta_ton))+' t' : 'blocos'}</p></div>
+            <div class="stat"><p class="label">Na missão</p><p class="value">${r.bl.length}</p><p class="sub">faltam listar ${Math.max(0, m.meta_blocos - r.bl.length)}</p></div>
+            <div class="stat ${r.sog ? 'ok' : ''}"><p class="label">Na Sogester</p><p class="value">${r.sog}</p><p class="sub">faltam ${r.falta} p/ meta</p></div>
+            <div class="stat"><p class="label">Embarcados</p><p class="value">${r.emb}</p></div>
+            <div class="stat"><p class="label">Liberados</p><p class="value">${r.lib}</p><p class="sub">${r.bl.length - r.lib} sem papelada</p></div>
+            <div class="stat"><p class="label">Peso listado</p><p class="value" style="font-size:17px;">${formatarTonTotal(r.pesoKg)}</p></div>
+          </div>
+          <p class="section-title">Onde estão os blocos</p>
+          <div id="md-parques" style="margin-bottom:12px;"></div>
+          ${pode && ativa ? `
+          <p class="section-title">Adicionar lista da Exportação</p>
+          <input id="md-ref" placeholder="Referência da lista (ex: Lista Exportação 12/10)" maxlength="60" style="${inp}height:38px;" />
+          <textarea id="md-txt" rows="4" placeholder="Cola os números dos blocos (um por linha, ou separados por vírgula/espaço)" style="${inp}font-family:var(--mono);"></textarea>
+          <button class="btn primary" id="md-prev" style="width:100%;height:40px;">Pré-visualizar</button>
+          <div id="md-res" style="margin-top:10px;"></div>` : ''}
+        </div>
+        <div class="panel" style="margin-top:14px;">
+          <p class="section-title">Blocos da missão</p>
+          <div id="md-blocos"></div>
+        </div>
+        <div class="panel" style="margin-top:14px;">
+          <p class="section-title">Histórico</p>
+          <div id="md-hist"><p style="font-size:12.5px;color:var(--ink-mute);">A carregar…</p></div>
+          ${pode && ativa ? '<button class="btn ghost small" id="md-enc" style="margin-top:12px;border-color:var(--rust);color:var(--rust);">Encerrar missão</button>' : ''}
+        </div>`;
+      content.querySelector('#md-voltar').onclick = ()=>{ missaoSel = null; renderMissoesSec(content); };
+
+      const pw = content.querySelector('#md-parques');
+      const pares = Object.entries(r.porParque).sort((a,b)=>b[1]-a[1]);
+      if(!pares.length) pw.innerHTML = '<p style="font-size:12.5px;color:var(--ink-mute);margin:0;">Ainda não há blocos nesta missão.</p>';
+      pares.forEach(([k,n])=>{ const row = document.createElement('div'); row.className = 'row'; row.style.marginBottom = '6px';
+        row.innerHTML = `<span class="num">${escH(k)}</span><span class="meta">${n} bloco(s)</span>`; pw.appendChild(row); });
+
+      const bw = content.querySelector('#md-blocos');
+      const lista = r.bl.slice().sort((a,b)=> a.numero<b.numero ? -1 : 1);
+      if(!lista.length) bw.innerHTML = '<p style="font-size:12.5px;color:var(--ink-mute);margin:0;">Nenhum bloco ainda.</p>';
+      lista.slice(0,100).forEach(b=>{
+        const row = document.createElement('div'); row.className = 'row'; row.style.marginBottom = '6px';
+        row.innerHTML = `<span class="num">${escH(b.numero)}</span><span class="meta">${escH(b.processo||'sem processo')} · ${escH(nomeParque(b))}${b.liberado ? ' · ✓ liberado' : ''}</span>`;
+        if(pode && ativa && b.estado!=='embarcado'){
+          const x = document.createElement('button'); x.className = 'btn ghost small'; x.textContent = '✕'; x.title = 'Retirar da missão'; x.style.marginLeft = '8px';
+          x.onclick = async ev=>{
+            ev.stopPropagation();
+            const motivo = prompt('Retirar o bloco '+b.numero+' da missão. Motivo (opcional):','');
+            if(motivo===null) return;
+            x.disabled = true;
+            try{
+              const {data,error} = await window.sb.rpc('retirar_bloco_missao', { p_missao:m.id, p_bloco:b.numero, p_motivo: motivo.trim() || null });
+              if(error) throw error;
+              if(data && data.erro){ alert(data.erro); x.disabled = false; return; }
+              await sincronizar();
+            }catch(e){ alert(msgErro(e)); x.disabled = false; }
+          };
+          row.appendChild(x);
+        }
+        bw.appendChild(row);
+      });
+      if(lista.length>100){ const p = document.createElement('p'); p.style.cssText = 'font-size:11.5px;color:var(--ink-mute);margin:6px 0 0;'; p.textContent = '+ '+(lista.length-100)+' blocos não listados aqui.'; bw.appendChild(p); }
+
+      /* histórico (carrega ao abrir) */
+      const hw = content.querySelector('#md-hist');
+      (async ()=>{
+        try{
+          if(!window.sb) throw new Error('sem ligação');
+          const {data,error} = await window.sb.from('missao_eventos').select('*').eq('missao_id', m.id).order('quando',{ascending:false}).limit(15);
+          if(error) throw error;
+          if(!hw.isConnected) return;
+          if(!data.length){ hw.innerHTML = '<p style="font-size:12.5px;color:var(--ink-mute);margin:0;">Sem eventos.</p>'; return; }
+          hw.innerHTML = '';
+          data.forEach(ev=>{
+            const d = ev.detalhe || {};
+            const t = new Date(ev.quando);
+            const quando = t.toLocaleDateString('pt-PT',{timeZone:'Africa/Luanda'})+' '+t.toLocaleTimeString('pt-PT',{timeZone:'Africa/Luanda',hour:'2-digit',minute:'2-digit',hour12:false});
+            let txt = ev.tipo;
+            if(ev.tipo==='criada') txt = 'Missão criada';
+            else if(ev.tipo==='lista') txt = 'Lista «'+(d.ref||'?')+'» · '+((d.adicionados||[]).length)+' adicionado(s)'+((d.conflitos||[]).length ? ' · '+d.conflitos.length+' conflito(s)' : '')+((d.nao_encontrados||[]).length ? ' · '+d.nao_encontrados.length+' não encontrado(s)' : '');
+            else if(ev.tipo==='retirada') txt = 'Retirou o bloco '+(d.bloco||'?')+(d.motivo ? ' · '+d.motivo : '');
+            else if(ev.tipo==='encerrada') txt = 'Encerrada · '+(d.embarcados||0)+' embarcados, '+(d.libertados||0)+' libertados';
+            const row = document.createElement('div'); row.className = 'row'; row.style.marginBottom = '6px';
+            row.innerHTML = `<span class="num" style="font-size:12.5px;font-family:inherit;font-weight:500;">${escH(txt)}</span><span class="meta">${escH(ev.por_nome||'—')} · ${escH(quando)}</span>`;
+            hw.appendChild(row);
+          });
+        }catch(e){ if(hw.isConnected) hw.innerHTML = '<p style="font-size:12.5px;color:var(--ink-mute);margin:0;">Não foi possível carregar o histórico.</p>'; }
+      })();
+
+      /* adicionar lista: pré-visualizar e só depois gravar */
+      const btnPrev = content.querySelector('#md-prev');
+      if(btnPrev){
+        const res = content.querySelector('#md-res');
+        const nums = ()=> [...new Set(String(content.querySelector('#md-txt').value).split(/[\s,;]+/).filter(x=>/^[A-Za-z0-9-]+$/.test(x)))];
+        const chamar = async confirmar=>{
+          const lista = nums();
+          if(!lista.length){ res.innerHTML = erroH('Cola pelo menos um número de bloco.'); return null; }
+          if(navigator.onLine===false){ res.innerHTML = erroH('Sem rede — tenta quando tiveres ligação.'); return null; }
+          const ref = content.querySelector('#md-ref').value.trim() || 'Lista sem referência';
+          const {data,error} = await window.sb.rpc('adicionar_lista_missao', { p_missao:m.id, p_ref:ref, p_blocos:lista, p_confirmar:confirmar });
+          if(error) throw error;
+          if(data && data.erro){ res.innerHTML = erroH(data.erro); return null; }
+          return data;
+        };
+        btnPrev.onclick = async ()=>{
+          btnPrev.disabled = true; res.innerHTML = '<p style="font-size:12.5px;color:var(--ink-mute);">A verificar…</p>';
+          try{
+            const d = await chamar(false); if(!d) return;
+            const parques = Object.entries(d.por_parque||{}).map(([k,n])=>`<span class="badge ok" style="margin-right:4px;">${escH(k)} ${n}</span>`).join('');
+            const conf = (d.conflitos||[]).slice(0,15).map(c=>`<div class="row" style="margin-top:4px;"><span class="num">${escH(c.bloco)}</span><span class="meta" style="color:var(--rust);">${escH(c.motivo)}</span></div>`).join('');
+            const nf = d.nao_encontrados||[];
+            res.innerHTML = `
+              <p style="font-size:13px;margin:0 0 6px;"><b>${d.a_adicionar}</b> a adicionar · ${d.ja_na_missao} já na missão · ${d.liberados} liberados · ${d.pedidos} pedidos</p>
+              ${parques ? `<p style="margin:0 0 6px;">${parques}</p>` : ''}
+              ${(d.conflitos||[]).length ? `<p style="font-size:12.5px;color:var(--rust);margin:8px 0 2px;font-weight:600;">${d.conflitos.length} em conflito (não entram)</p>${conf}` : ''}
+              ${nf.length ? `<p style="font-size:12.5px;color:var(--amber);margin:8px 0 2px;font-weight:600;">${nf.length} sem registo (não entram): ${escH(nf.slice(0,20).join(', '))}${nf.length>20 ? '…' : ''}</p>` : ''}
+              ${d.ignorados ? `<p style="font-size:11.5px;color:var(--ink-mute);margin:6px 0 0;">${d.ignorados} valor(es) ignorado(s) por não parecerem números de bloco.</p>` : ''}
+              <div style="display:flex;gap:8px;margin-top:10px;">
+                <button class="btn success" id="md-conf" style="flex:1;height:40px;" ${d.a_adicionar ? '' : 'disabled'}>Confirmar e gravar (${d.a_adicionar})</button>
+                <button class="btn ghost" id="md-canc" style="height:40px;">Cancelar</button>
+              </div>`;
+            res.querySelector('#md-canc').onclick = ()=>{ res.innerHTML = ''; };
+            const bc = res.querySelector('#md-conf');
+            bc.onclick = async ()=>{
+              bc.disabled = true;
+              try{
+                const f = await chamar(true); if(!f){ bc.disabled = false; return; }
+                if(window.celebrar && f.adicionados) window.celebrar('Lista adicionada', f.adicionados+' bloco(s) · '+m.navio);
+                await sincronizar();
+              }catch(e){ res.innerHTML = erroH(msgErro(e)); }
+            };
+          }catch(e){ res.innerHTML = erroH(msgErro(e)); }
+          finally{ btnPrev.disabled = false; }
+        };
+      }
+
+      const be = content.querySelector('#md-enc');
+      if(be) be.onclick = async ()=>{
+        if(!confirm('Encerrar a missão '+m.navio+'? Os blocos que ainda não embarcaram ficam livres para outra missão.')) return;
+        be.disabled = true;
+        try{
+          const {data,error} = await window.sb.rpc('encerrar_missao', { p_missao:m.id });
+          if(error) throw error;
+          if(data && data.erro){ alert(data.erro); be.disabled = false; return; }
+          await sincronizar();
+        }catch(e){ alert(msgErro(e)); be.disabled = false; }
+      };
+    }
+
+    if(missaoAssist==='nova' && pode) return desenharNova();
+    const sel = missaoSel ? ms.find(x=>x.id===missaoSel) : null;
+    if(sel) return desenharDetalhe(sel);
+    missaoSel = null;
+    return desenharLista();
   }
 
   function renderContentoresSec(content){
@@ -6669,6 +6947,7 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
   const aviso = t=>{ const el=document.getElementById('save-bar-txt'); if(el){ el.textContent=t; el.style.color='var(--ink-mute)'; } };
   const fmt = d=>{ if(!d) return null; const [y,m,dd]=String(d).slice(0,10).split('-'); return `${dd}/${m}/${y}`; };
   const hojeLuanda = ()=>new Date().toLocaleDateString('en-CA',{timeZone:'Africa/Luanda'});
+  const limpa = s=> s==null ? s : String(s).replace(/[<>"`\\]/g,'');   /* tira < > " ` \ dos textos do servidor antes de os mostrar */
   async function ler(tabela, ordem){
     const PAG=1000; let tudo=[];
     for(let i=0;;i+=PAG){
@@ -6679,9 +6958,9 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
     return tudo;
   }
   function blocoDoServidor(r){
-    const b = { numero:r.numero, processo:r.processo||null, origem:r.origem, tipoCarga:r.tipo_carga, contentor:r.contentor||null,
+    const b = { numero:r.numero, processo:limpa(r.processo)||null, origem:r.origem, tipoCarga:r.tipo_carga, contentor:limpa(r.contentor)||null, missaoNovaId:r.missao_id||null,
       pesoKg:r.peso_kg||undefined, cbm:r.cbm!=null?+r.cbm:undefined, compM:r.comp_m!=null?+r.comp_m:undefined, altM:r.alt_m!=null?+r.alt_m:undefined, largM:r.larg_m!=null?+r.larg_m:undefined,
-      porao:r.porao||null, liberado: r.liberado ? {quando:r.liberado_em, lista:r.liberado_lista} : null,
+      porao:limpa(r.porao)||null, liberado: r.liberado ? {quando:r.liberado_em, lista:r.liberado_lista} : null,
       porCompletar: !!r.por_completar, registadoHoje: new Date(r.criado_em).toLocaleDateString('en-CA',{timeZone:'Africa/Luanda'})===hojeLuanda(), registadoPor:'Servidor', historico:[],
       origemMovimento:null, destinoMovimento:null, guiaMovimento:null, divergencia:false };
     switch(r.estado){
@@ -6691,7 +6970,7 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
       case 'aguarda_navio': b.estado='aguarda_navio'; b.local='Sogester (aguarda navio)'; break;
       case 'entregue_sogester': b.estado='entregue_sogester'; b.local='Sogester (entregue)'; break;
       case 'aguarda_embarque_contentor': b.estado='aguarda_embarque_contentor'; b.local='Sogester (aguarda embarque contentor)'; break;
-      case 'embarcado': b.estado='embarcado'; b.local='Embarcado · '+(r.navio||'?'); b.missaoId=r.processo; break;
+      case 'embarcado': b.estado='embarcado'; b.local='Embarcado · '+limpa(r.navio||'?'); b.missaoId=limpa(r.processo); break;
       default: b.estado='anulado'; b.local='Mingue (anulado)';
     }
     return b;
@@ -6710,7 +6989,7 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
     emSync = true;
     if(!auto) aviso('⏳ A atualizar…');
     try{
-      const [bl,pr,cl,mo,ma,gu,gb,li] = await Promise.all([ler('blocos','numero'),ler('processos','codigo'),ler('clientes','codigo'),ler('motoristas','nome'),ler('maquinistas','nome'),ler('guias','registado_em,id'),ler('guia_blocos','guia_id,bloco'),ler('liberacoes','quando,id')]);
+      const [bl,pr,cl,mo,ma,gu,gb,li,mi] = await Promise.all([ler('blocos','numero'),ler('processos','codigo'),ler('clientes','codigo'),ler('motoristas','nome'),ler('maquinistas','nome'),ler('guias','registado_em,id'),ler('guia_blocos','guia_id,bloco'),ler('liberacoes','quando,id'),ler('missoes','criada_em,id').catch(()=>[])]);
       STATE.blocos = bl.map(blocoDoServidor);
       /* guias do servidor -> lista de confirmações, números usados e dados da viagem dos blocos em trânsito */
       const blocosDaGuia = new Map(); gb.forEach(r=>{ if(!blocosDaGuia.has(r.guia_id)) blocosDaGuia.set(r.guia_id, []); blocosDaGuia.get(r.guia_id).push(r.bloco); });
@@ -6720,13 +6999,13 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
         const t = new Date(g.ocorrido_em || g.registado_em);
         const comb = g.modal==='comboio', emb = g.tipo==='embarque';
         const blocos = blocosDaGuia.get(g.id) || [];
-        const paraEmb = g.situacao==='embarcou' ? 'Embarcado · '+(g.navio||'?') : ({aguarda_navio:'Sogester (aguarda navio)', entregue_sogester:'Sogester (entregue)', aguarda_embarque_contentor:'Sogester (aguarda embarque contentor)'}[g.situacao] || 'Sogester');
+        const paraEmb = g.situacao==='embarcou' ? 'Embarcado · '+limpa(g.navio||'?') : ({aguarda_navio:'Sogester (aguarda navio)', entregue_sogester:'Sogester (entregue)', aguarda_embarque_contentor:'Sogester (aguarda embarque contentor)'}[g.situacao] || 'Sogester');
         return { id:g.id, numero:g.numero!=null?+g.numero:null, tipo:g.tipo,
           data: t.toLocaleDateString('en-CA',{timeZone:'Africa/Luanda'}),
           hora: t.toLocaleTimeString('pt-PT',{timeZone:'Africa/Luanda',hour:'2-digit',minute:'2-digit',hour12:false}),
           de:g.de, para: emb ? paraEmb : g.para, modal: emb ? 'embarque' : (g.modal||'camiao'),
-          carruagem: g.carruagem||null, motorista: emb ? null : (comb ? g.maquinista : g.motorista), viatura: emb ? null : (comb ? g.locomotiva : g.viatura),
-          missaoId: emb ? (g.processo||null) : null, poroes: g.poroes||null, blocos,
+          carruagem: limpa(g.carruagem)||null, motorista: emb ? null : limpa(comb ? g.maquinista : g.motorista), viatura: emb ? null : limpa(comb ? g.locomotiva : g.viatura),
+          missaoId: emb ? (limpa(g.processo)||null) : null, poroes: g.poroes ? Object.fromEntries(Object.entries(g.poroes).map(([k,v])=>[limpa(k),limpa(v)])) : null, blocos,
           pesoKg: blocos.reduce((s,n)=>s+(pesoDe.get(n)||0),0), divergente:false, desvio:null, posto:g.posto||null, registadoPor:g.registado_por||null };
       });
       STATE.guias = lista;
@@ -6738,13 +7017,15 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
       const saidaPor = new Map(); lista.slice().reverse().forEach(g=>{ if(g.tipo==='saida' && g.numero!=null) saidaPor.set(g.numero+'|'+g.de, g); });
       STATE.blocos.forEach(b=>{ if(b.estado!=='a_caminho') return; const g = saidaPor.get(b.guiaMovimento+'|'+b.origemMovimento); if(!g) return;
         b.modalMovimento=g.modal; b.motoristaMovimento=g.motorista; b.viaturaMovimento=g.viatura; b.carruagemMovimento=g.carruagem; b.dataMovimento=g.data; b.horaMovimento=g.hora; });
-      STATE.processos = pr.map(p=>({ codigo:p.codigo, cliente:p.cliente, origem:'Mingue', meta:p.meta, metaTon:p.meta_ton!=null?+p.meta_ton:null, porConfirmar:p.por_confirmar, criadoEm:p.criado_em, criadoPor:'Servidor',
-        navio:p.navio, tipo:p.tipo, estado:p.estado }));
-      STATE.clientes = cl.map(c=>({ codigo:c.codigo, nome:c.nome||c.codigo }));
-      STATE.missoes = pr.filter(p=>p.navio).map(p=>({ id:p.codigo, navio:p.navio, tipo:p.tipo, local:p.local_carregamento, meta:p.meta, metaTon:+p.meta_ton||0,
+      STATE.processos = pr.map(p=>({ codigo:limpa(p.codigo), cliente:limpa(p.cliente), origem:'Mingue', meta:p.meta, metaTon:p.meta_ton!=null?+p.meta_ton:null, porConfirmar:p.por_confirmar, criadoEm:p.criado_em, criadoPor:'Servidor',
+        navio:limpa(p.navio), tipo:p.tipo, estado:p.estado }));
+      STATE.clientes = cl.map(c=>({ codigo:limpa(c.codigo), nome:limpa(c.nome||c.codigo) }));
+      STATE.missoes = pr.filter(p=>p.navio).map(p=>({ id:limpa(p.codigo), navio:limpa(p.navio), tipo:p.tipo, local:p.local_carregamento, meta:p.meta, metaTon:+p.meta_ton||0,
         dataCarregamento:fmt(p.data_embarque), dataPosicionamento:fmt(p.data_posicionamento), estado:p.estado==='activo'?'activa':'encerrada' }));
-      if(mo.length) STATE.motoristas = mo.map(m=>({ nome:m.nome, matricula:m.matricula, activo:m.activo }));
-      if(ma.length) STATE.maquinistas = ma.map(m=>({ maquinista:m.nome||m.maquinista, locomotiva:m.locomotiva||m.loco||'', nome:m.nome||m.maquinista, activo:m.activo }));
+      STATE.missoesNovas = (mi||[]).slice().sort((a,b)=> new Date(b.criada_em)-new Date(a.criada_em)).map(x=>({ id:x.id, navio:limpa(x.navio), tipo:x.tipo, local_carregamento:limpa(x.local_carregamento),
+        meta_blocos:+x.meta_blocos, meta_ton:x.meta_ton!=null?+x.meta_ton:null, prazo_posicionamento:x.prazo_posicionamento, data_embarque:x.data_embarque, estado:x.estado, criada_em:x.criada_em }));
+      if(mo.length) STATE.motoristas = mo.map(m=>({ nome:limpa(m.nome), matricula:limpa(m.matricula), activo:m.activo }));
+      if(ma.length) STATE.maquinistas = ma.map(m=>({ maquinista:limpa(m.nome||m.maquinista), locomotiva:limpa(m.locomotiva||m.loco||''), nome:limpa(m.nome||m.maquinista), activo:m.activo }));
       if(!(auto && aEscrever())) render();
       window.BF_ULTIMO_SYNC = Date.now(); if(window.bfFila) window.bfFila.desenhar();
       const d=new Date(); if(!auto) aviso(`🔄 Atualizado às ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')} · ${STATE.blocos.length} blocos · ${STATE.processos.length} processos`);
