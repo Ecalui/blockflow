@@ -3877,7 +3877,7 @@ function adoptarViagem(v){
     formState.guia = String(v.guia); formState.modal = v.modal;
     formState.nome = v.motorista; formState.matricula = v.viatura; formState.carruagem = v.carruagem || '';
   } else {
-    formState.guia = String(nextGuia()); formState.modal = 'camiao';
+    formState.guia = ''; formState.modal = 'camiao';
     formState.nome = null; formState.matricula = null; formState.carruagem = ''; formState.selecionados = [];
   }
 }
@@ -3901,14 +3901,20 @@ function parqueResumo(posto){
     (g.blocos||[]).forEach(n=>{ sairam.add(n); if(g.data===hoje) hojeSet.add(n); });
   });
   sairam.forEach(n=>{ const b = idx.get(n); L(b && b.processo ? b.processo : 'Sem processo').sairam++; LC(ck(b)).sairam++; });
-  return { aqui, chegar, sairam: sairam.size, hoje: hojeSet.size, porProc, porCli, sairamSet: sairam };
+  const entraram = new Set(), entHoje = new Set(); let gEntHoje = 0, gSaiHoje = 0;
+  (STATE.guias||[]).forEach(g=>{
+    if(g.tipo==='entrada' && g.para===posto){ (g.blocos||[]).forEach(n=>{ entraram.add(n); if(g.data===hoje) entHoje.add(n); }); if(g.data===hoje) gEntHoje++; }
+    else if(g.tipo==='saida' && g.de===posto && g.data===hoje) gSaiHoje++;
+  });
+  return { aqui, chegar, sairam: sairam.size, hoje: hojeSet.size, entraram: entraram.size, entrouHoje: entHoje.size, gEntHoje, gSaiHoje, porProc, porCli, sairamSet: sairam };
 }
 function parquePanel(){
   const r = parqueResumo(postoAtivo);
   const box = document.createElement('div');
   box.style.cssText = 'border:1px solid var(--border);border-radius:12px;background:var(--surface);padding:10px;margin-bottom:12px;';
   const num = (v,l,c)=>`<div style="flex:1;text-align:center;"><div style="font-size:22px;font-weight:700;font-family:var(--mono);color:${c||'var(--ink)'};line-height:1.15;">${v}</div><div style="font-size:10px;color:var(--ink-mute);text-transform:uppercase;letter-spacing:.3px;">${l}</div></div>`;
-  box.innerHTML = `<div style="display:flex;gap:4px;">${num(r.aqui,'Aqui agora')}${num(r.chegar,'A chegar','#8A5E0B')}${num(r.hoje,'Saíram hoje','#2E7D4F')}${num(r.sairam,'Saíram (total)')}</div>
+  box.innerHTML = `<div style="display:flex;gap:4px;">${num(r.aqui,'Aqui agora')}${num(r.chegar,'A chegar','#8A5E0B')}${num(r.entrouHoje,'Entraram hoje','#1F5FA8')}${num(r.hoje,'Saíram hoje','#2E7D4F')}</div>
+    <div style="font-size:11.5px;color:var(--ink-soft);text-align:center;margin-top:6px;">Hoje: <strong>${r.gEntHoje}</strong> guia(s) de entrada · <strong>${r.gSaiHoje}</strong> de saída — desde o início: entraram <strong>${r.entraram}</strong> · saíram <strong>${r.sairam}</strong></div>
     <button type="button" class="btn ghost small" id="parque-tog" style="width:100%;margin-top:8px;">${parqueAberto?'Esconder detalhe':'Ver por processo / cliente'}</button><div id="parque-lista"></div>`;
   box.querySelector('#parque-tog').onclick = ()=>{ parqueAberto = !parqueAberto; render(); };
   if(parqueAberto){
@@ -4200,7 +4206,7 @@ function viewConferente(){
     const guiaNum = parseInt(formState.guia, 10);
     const guiaDuplicada = guiaEditavel && STATE.guiasUsadas.has(guiaNum);
     const guiaEsperada = nextGuia();
-    const guiaForaSeq = guiaEditavel && !guiaDuplicada && guiaNum && guiaNum !== guiaEsperada;
+    const guiaForaSeq = false;   /* a sequência já não é verificada no cais: o nº vem do papel */
     const origens = origensDe(postoAtivo);
     const destinos = destinosDe(postoAtivo);
     const noPorto = postoAtivo==='Sogester' && confMode==='saida';
@@ -4286,8 +4292,8 @@ function viewConferente(){
         ` : ''}
       ` : ''}
       ${embarque ? (embarqueComNavio ? `<p class="section-title" data-passo="missao">Missão / Navio</p><div id="missoes-lista" style="margin-bottom:14px;"></div>` : '') : (guiaEditavel ? `
-        <p class="section-title" data-passo="guia">Guia Nº <span style="font-weight:400;color:var(--ink-mute);">${guiaProducao ? '(emitida aqui)' : '(escreve o número do papel)'}</span></p>
-        <input id="input-guia" value="${formState.guia}" placeholder="${guiaProducao ? '' : 'Nº da guia'}" style="width:100%;height:38px;border-radius:8px;border:1px solid ${guiaDuplicada?'var(--rust)':(guiaForaSeq?'var(--amber)':'var(--border-strong)')};padding:0 10px;font-size:13px;font-family:var(--mono);margin-bottom:4px;background:var(--surface);color:var(--ink);" />
+        <p class="section-title" data-passo="guia">Guia Nº <span style="font-weight:400;color:var(--ink-mute);">(escreve o número do papel)</span></p>
+        <input id="input-guia" value="${formState.guia}" placeholder="Nº da guia" style="width:100%;height:38px;border-radius:8px;border:1px solid ${guiaDuplicada?'var(--rust)':(guiaForaSeq?'var(--amber)':'var(--border-strong)')};padding:0 10px;font-size:13px;font-family:var(--mono);margin-bottom:4px;background:var(--surface);color:var(--ink);" />
         <p id="guia-warn" style="font-size:11.5px;margin:0 0 12px;display:${(guiaDuplicada||guiaForaSeq)?'block':'none'};color:${guiaDuplicada?'var(--rust)':'var(--amber)'};">${guiaDuplicada ? '⚠ Esta guia já foi registada.' : (guiaForaSeq ? `⚠ Fora da sequência esperada (${guiaEsperada}).` : '')}</p>
       ` : `
         <p class="section-title">Guia Nº</p>
@@ -4490,7 +4496,7 @@ function viewConferente(){
         const gNum = parseInt(formState.guia, 10);
         const dup = STATE.guiasUsadas.has(gNum);
         const esperada = nextGuia();
-        const foraSeq = !dup && gNum && gNum !== esperada;
+        const foraSeq = false;
         const warn = area.querySelector('#guia-warn');
         inputGuia.style.borderColor = dup ? 'var(--rust)' : (foraSeq ? 'var(--amber)' : 'var(--border-strong)');
         if(dup){ warn.style.display='block'; warn.style.color='var(--rust)'; warn.textContent='⚠ Esta guia já foi registada.'; }
