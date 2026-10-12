@@ -4921,7 +4921,135 @@ const TR_SECCOES = [
   { id:'elo',        label:'Por elo' },
   { id:'restantes',  label:'Restantes por processo' },
   { id:'concluidos', label:'Concluídos' },
+  { id:'equipas',    label:'Equipas' },
 ];
+let trEquipaTipo = 'motoristas', trEquipaForm = null, trEquipaBusca = '';
+function renderEquipasTransportes(content){
+  const papel = window.BF_USER && window.BF_USER.papel;
+  const online = !!(window.sb && window.BF_USER);
+  const pode = online && ['transportes','admin'].includes(papel);
+  const ehMot = trEquipaTipo==='motoristas';
+  const tipo = ehMot ? 'motorista' : 'maquinista';
+  const rotuloId = ehMot ? 'Matrícula' : 'Locomotiva';
+  const lista = (STATE[trEquipaTipo] || []).map(r=>({ nome: r.nome || r.maquinista || '', id: ehMot ? (r.matricula||'') : (r.locomotiva||''), activo: r.activo !== false }))
+                  .sort((a,b)=> a.nome.localeCompare(b.nome,'pt'));
+  const inp = 'width:100%;border-radius:8px;border:1px solid var(--border-strong);padding:8px 10px;font-size:13px;background:var(--surface);color:var(--ink);margin-bottom:8px;height:38px;';
+  const erroH = t=>`<p style="font-size:12.5px;color:var(--rust);margin:6px 0 0;">${escH(t)}</p>`;
+  const msgErro = e=> 'Não gravou no servidor: '+String((e && e.message) || e);
+  const sincronizar = async ()=> window.bfSincronizar ? await window.bfSincronizar(false) : false;
+
+  content.innerHTML = `
+    <div class="panel">
+      <p class="section-title">Equipas <span style="font-weight:400;color:var(--ink-mute);">— motoristas e maquinistas</span></p>
+      <div id="eq-tipo" style="display:flex;gap:6px;margin-bottom:10px;"></div>
+      ${!online ? '<p style="font-size:12.5px;color:var(--ink-mute);margin:0 0 10px;">A gestão da lista está disponível quando estiveres ligado ao servidor.</p>'
+        : (pode ? '<button class="btn success small" id="eq-novo" style="margin-bottom:10px;">＋ Adicionar</button>'
+                : '<p style="font-size:12.5px;color:var(--ink-mute);margin:0 0 10px;">Só os Transportes e o administrador alteram esta lista.</p>')}
+      <div id="eq-form"></div>
+      <input id="eq-busca" placeholder="Procurar por nome ou ${ehMot ? 'matrícula' : 'locomotiva'}" value="${escH(trEquipaBusca)}" style="${inp}" />
+      <div id="eq-lista"></div>
+    </div>`;
+
+  const tab = content.querySelector('#eq-tipo');
+  [['Motoristas','motoristas'],['Maquinistas','maquinistas']].forEach(([lb,v])=>{
+    const b = document.createElement('button'); b.className = 'btn small '+(trEquipaTipo===v ? 'primary' : 'ghost'); b.textContent = lb;
+    b.onclick = ()=>{ trEquipaTipo = v; trEquipaForm = null; trEquipaBusca = ''; renderEquipasTransportes(content); };
+    tab.appendChild(b);
+  });
+
+  const fw = content.querySelector('#eq-form');
+  function desenharForm(){
+    if(!trEquipaForm){ fw.innerHTML = ''; return; }
+    const ed = trEquipaForm.modo==='editar';
+    const reg = ed ? (lista.find(x=>x.id===trEquipaForm.ident) || { nome:'', id:'' }) : { nome:'', id:'' };
+    fw.innerHTML = `
+      <div style="border:1px solid var(--border-strong);border-radius:10px;padding:10px;margin-bottom:10px;">
+        <p style="font-size:12px;color:var(--ink-mute);margin:0 0 8px;">${ed ? 'A corrigir o registo' : 'Novo registo'}</p>
+        <input id="eq-nome" value="${escH(reg.nome)}" placeholder="${ehMot ? 'Nome do motorista' : 'Nome do maquinista'}" maxlength="60" style="${inp}" />
+        <input id="eq-id" value="${escH(reg.id)}" placeholder="${rotuloId}" maxlength="20" style="${inp}" />
+        <div id="eq-warn"></div>
+        <div style="display:flex;gap:6px;"><button class="btn primary small" id="eq-guardar" style="flex:1;">Guardar</button><button class="btn ghost small" id="eq-cancelar">Cancelar</button></div>
+        ${ed ? '<div id="eq-hist" style="margin-top:10px;"></div>' : ''}
+      </div>`;
+    fw.querySelector('#eq-cancelar').onclick = ()=>{ trEquipaForm = null; desenharForm(); };
+    const warn = fw.querySelector('#eq-warn'), btn = fw.querySelector('#eq-guardar');
+    btn.onclick = async ()=>{
+      const nome = fw.querySelector('#eq-nome').value.trim(), ident = fw.querySelector('#eq-id').value.trim();
+      if(!nome || !ident){ warn.innerHTML = erroH('Preenche o nome e a '+rotuloId.toLowerCase()+'.'); return; }
+      if(lista.some(x=> x.id.toUpperCase()===ident.toUpperCase() && !(ed && x.id===trEquipaForm.ident))){ warn.innerHTML = erroH('Essa '+rotuloId.toLowerCase()+' já está atribuída a outro registo.'); return; }
+      if(navigator.onLine===false){ warn.innerHTML = erroH('Sem rede — tenta quando tiveres ligação.'); return; }
+      btn.disabled = true; warn.innerHTML = '<p style="font-size:12.5px;color:var(--ink-mute);margin:0 0 6px;">A gravar…</p>';
+      const p = { tipo, nome, identificacao: ident }; if(ed) p.identificacao_antiga = trEquipaForm.ident;
+      try{
+        const {data,error} = await window.sb.rpc('guardar_equipa', { p });
+        if(error) throw error;
+        if(data && data.erro){ warn.innerHTML = erroH(data.erro); btn.disabled = false; return; }
+        trEquipaForm = null;
+        const ok = await sincronizar();
+        if(!ok){ renderEquipasTransportes(content); content.insertAdjacentHTML('afterbegin','<p style="font-size:12.5px;color:var(--moss);font-weight:600;">Gravado. Carrega em «Atualizar» para ver a lista nova.</p>'); }
+      }catch(e){ warn.innerHTML = erroH(msgErro(e)); btn.disabled = false; }
+    };
+    if(ed){
+      const hw = fw.querySelector('#eq-hist');
+      (async ()=>{
+        try{
+          if(!window.sb) throw new Error('sem ligação');
+          const {data,error} = await window.sb.from('equipa_historico').select('*').eq('tipo',tipo).eq('chave',String(trEquipaForm.ident).toUpperCase()).order('quando',{ascending:false}).limit(8);
+          if(error) throw error;
+          if(!hw.isConnected) return;
+          if(!data.length){ hw.innerHTML = '<p style="font-size:11.5px;color:var(--ink-mute);margin:0;">Sem histórico registado.</p>'; return; }
+          hw.innerHTML = '<p style="font-size:11.5px;color:var(--ink-mute);margin:0 0 4px;">Histórico</p>';
+          data.forEach(ev=>{
+            const d = ev.detalhe || {}; const t = new Date(ev.quando);
+            const quando = t.toLocaleDateString('pt-PT',{timeZone:'Africa/Luanda'})+' '+t.toLocaleTimeString('pt-PT',{timeZone:'Africa/Luanda',hour:'2-digit',minute:'2-digit',hour12:false});
+            let txt = ev.acao;
+            if(ev.acao==='criado') txt = 'Criado';
+            else if(ev.acao==='alterado') txt = 'Alterou: '+[d.nome ? 'nome '+d.nome[0]+' → '+d.nome[1] : '', d.identificacao ? rotuloId.toLowerCase()+' '+d.identificacao[0]+' → '+d.identificacao[1] : ''].filter(Boolean).join(' · ');
+            else if(ev.acao==='desactivado') txt = 'Desativado';
+            else if(ev.acao==='reactivado') txt = 'Reativado';
+            const row = document.createElement('div'); row.style.cssText = 'font-size:11.5px;padding:3px 0;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;';
+            row.innerHTML = `<span>${escH(txt)}</span><span style="color:var(--ink-mute);white-space:nowrap;">${escH(ev.por_nome||'—')} · ${escH(quando)}</span>`;
+            hw.appendChild(row);
+          });
+        }catch(e){ if(hw.isConnected) hw.innerHTML = '<p style="font-size:11.5px;color:var(--ink-mute);margin:0;">Não foi possível carregar o histórico.</p>'; }
+      })();
+    }
+  }
+
+  const lw = content.querySelector('#eq-lista');
+  function desenharLista(){
+    const q = trEquipaBusca.trim().toLowerCase();
+    const ls = lista.filter(r=> !q || r.nome.toLowerCase().includes(q) || r.id.toLowerCase().includes(q));
+    lw.innerHTML = '';
+    if(!ls.length){ lw.innerHTML = `<p style="font-size:12.5px;color:var(--ink-mute);margin:0;">${lista.length ? 'Nada encontrado.' : 'Ainda não há registos.'}</p>`; return; }
+    ls.forEach(r=>{
+      const row = document.createElement('div'); row.className = 'row'; row.style.cssText = 'margin-bottom:6px;gap:8px;'+(r.activo ? '' : 'opacity:.6;');
+      row.innerHTML = `<span class="num" style="font-family:var(--sans);font-weight:600;">${escH(r.nome)}${r.activo ? '' : ' <span class="badge warn" style="font-weight:500;">inativo</span>'}</span><span class="meta" style="font-family:var(--mono);">${escH(r.id||'—')}</span>`;
+      if(pode){
+        const be = document.createElement('button'); be.className = 'btn ghost small'; be.textContent = 'Editar';
+        be.onclick = ()=>{ trEquipaForm = { modo:'editar', ident:r.id }; desenharForm(); if(fw.scrollIntoView) fw.scrollIntoView({block:'nearest'}); };
+        const ba = document.createElement('button'); ba.className = 'btn ghost small'; ba.textContent = r.activo ? 'Desativar' : 'Reativar';
+        ba.onclick = async ()=>{
+          if(!confirm((r.activo ? 'Desativar ' : 'Reativar ')+r.nome+'?'+(r.activo ? ' Deixa de aparecer nas sugestões do Conferente.' : ''))) return;
+          ba.disabled = true;
+          try{
+            const {data,error} = await window.sb.rpc('estado_equipa', { p:{ tipo, identificacao:r.id, activo: !r.activo } });
+            if(error) throw error;
+            if(data && data.erro){ alert(data.erro); ba.disabled = false; return; }
+            await sincronizar();
+          }catch(e){ alert(msgErro(e)); ba.disabled = false; }
+        };
+        row.appendChild(be); row.appendChild(ba);
+      }
+      lw.appendChild(row);
+    });
+  }
+  content.querySelector('#eq-busca').oninput = e=>{ trEquipaBusca = e.target.value; desenharLista(); };
+  const bn = content.querySelector('#eq-novo');
+  if(bn) bn.onclick = ()=>{ trEquipaForm = { modo:'novo' }; desenharForm(); };
+  desenharForm(); desenharLista();
+}
+
 function viewTransportes(){
   const el = document.createElement('div');
   const guiasComViatura = STATE.guias.filter(g=> g.modal!=='embarque' && g.viatura);
@@ -5075,6 +5203,8 @@ function viewTransportes(){
       row.innerHTML = `<span class="num" style="font-family:var(--sans);font-weight:600;">${p.processo}</span><span class="meta">${p.restam} bloco(s) por transportar de ${p.total} · ${formatarTonTotal(p.peso)}</span>`;
       restWrap.appendChild(row);
     });
+  } else if(trSeccao==='equipas'){
+    renderEquipasTransportes(content);
   } else if(trSeccao==='concluidos'){
     content.innerHTML = `<div class="panel"><p class="section-title">Processos concluídos <span style="font-weight:400;color:var(--ink-mute);">— histórico</span></p><div id="processos-concluidos"></div></div>`;
     const concWrap = content.querySelector('#processos-concluidos');
@@ -5489,7 +5619,6 @@ const LOG_SECCOES = [
   { id:'liberacao',   label:'Liberação (Exportação)' },
   { id:'missoes',     label:'Missões (navios)' },
   { id:'corrigir',    label:'Corrigir bloco' },
-  { id:'equipas',     label:'Equipas' },
   { id:'relatorios',  label:'Relatórios' },
 ];
 
@@ -5703,7 +5832,6 @@ function viewLogistica(){
   else if(logSeccao==='liberacao') renderLiberacaoSec(content);
   else if(logSeccao==='missoes') renderMissoesSec(content);
   else if(logSeccao==='corrigir') renderCorrigirSec(content);
-  else if(logSeccao==='equipas') renderEquipasSec(content);
   else if(logSeccao==='relatorios') renderRelatoriosSec(content);
 
   function renderGeral(content){
