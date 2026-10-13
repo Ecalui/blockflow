@@ -317,6 +317,7 @@ const STATE = {
   destinos: ['Chibia','Arimba','Caraculo','Saco-Mar','Sogester'],
   /* motoristas e maquinistas vêm só do servidor (tabelas motoristas e maquinistas); não ficam no código */
   motoristas: [],
+  viaturas: [],
   maquinistas: [],
   /* lecturers: removidos do código (o Daily Report deixa o campo em branco, a preencher à mão); voltam quando houver tabela no servidor */
   lecturers: [],
@@ -358,7 +359,7 @@ const STATE = {
 
 /* ---- PERSISTÊNCIA LOCAL (ponte até ao Supabase) ---- */
 (function persistencia(){
-  const KEY='bf_estado_v1', KEYS=['clientes','processos','blocos','guias','guiasUsadas','ultimo','ultimoComboio','ultimaGuia','listasExportacao','missoes','motoristas','maquinistas'];
+  const KEY='bf_estado_v1', KEYS=['clientes','processos','blocos','guias','guiasUsadas','ultimo','ultimoComboio','ultimaGuia','listasExportacao','missoes','motoristas','viaturas','maquinistas'];
   const ser = ()=>{ const o={v:1, gravadoEm:new Date().toISOString()}; KEYS.forEach(k=>{ o[k] = STATE[k] instanceof Set ? [...STATE[k]] : STATE[k]; }); return JSON.stringify(o); };
   const aplicar = o=>{ KEYS.forEach(k=>{ if(o[k]===undefined) return; STATE[k] = (k==='guiasUsadas') ? new Set(o[k]) : o[k]; }); };
   try{ const raw=localStorage.getItem(KEY); if(raw) aplicar(JSON.parse(raw)); }catch(e){ console.warn('Estado local ilegível', e); }
@@ -3844,6 +3845,28 @@ function viagemSelecionada(){
   if(confMode!=='entrada' || !formState.guiaSel) return null;
   return viagensParaEntrada(postoAtivo, formState.origem).find(v=>v.chave === formState.guiaSel) || null;
 }
+const bfNorm = s=> String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
+const bfMat = s=> String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+/* viaturas conhecidas: tabela viaturas + matrículas habituais dos motoristas (serve antes da 1.ª sincronização) */
+function bfViaturas(){
+  const m = new Map();
+  (STATE.viaturas||[]).forEach(v=>{ if(v.activo!==false) m.set(bfMat(v.matricula), { matricula:v.matricula, marca:v.marca||'', ni:v.ni||'' }); });
+  (STATE.motoristas||[]).forEach(x=>{ if(x.activo!==false && x.matricula && !m.has(bfMat(x.matricula))) m.set(bfMat(x.matricula), { matricula:x.matricula, marca:'', ni:'' }); });
+  return Array.from(m.values()).sort((a,b)=>a.matricula.localeCompare(b.matricula));
+}
+/* motoristas sugeridos para uma viatura: o habitual e os das últimas guias (sem repetir, no máximo 4) */
+function bfSugestoesMotorista(matricula){
+  const alvo = bfMat(matricula); const out = []; const vistos = new Set();
+  if(!alvo) return out;
+  const ativos = (STATE.motoristas||[]).filter(m=>m.activo!==false);
+  const canon = n=> (ativos.find(m=>bfNorm(m.nome)===bfNorm(n)) || { nome:n }).nome;
+  ativos.filter(m=>bfMat(m.matricula)===alvo).forEach(m=>{ const k = bfNorm(m.nome); if(!vistos.has(k)){ vistos.add(k); out.push({ nome:m.nome, tag:'habitual' }); } });
+  (STATE.guias||[]).forEach(g=>{
+    if(out.length>=4 || g.modal==='comboio' || g.modal==='embarque' || !g.motorista || bfMat(g.viatura)!==alvo) return;
+    const k = bfNorm(g.motorista); if(vistos.has(k)) return; vistos.add(k); out.push({ nome:canon(g.motorista), tag:'última guia' });
+  });
+  return out.slice(0,4);
+}
 function resetForm(){
   const origens = origensDe(postoAtivo);
   formState = {
@@ -3851,12 +3874,12 @@ function resetForm(){
     destino: null, origem: origens.length === 1 ? origens[0] : null, blocos: [''], poroes: [null],
     selecionados: [], guiaSel: null, trocaPessoa: false, filtroPendente: '', focoFiltro: false,
     carruagem: '', missaoId: null, tipoSaidaChibia: 'granel', processoContentor: '', numContentor: '', externo: false, empresaExterna: '',
-    mostrarTodosPendentes: false, mostrarOutrasOrigens: false,
+    mostrarTodosPendentes: false, mostrarOutrasOrigens: false, mostrarOutro: false,
   };
 }
 resetForm();
 function aplicarModal(modal){
-  formState.modal = modal; formState.usandoUltimo = false; formState.nome = null; formState.matricula = null; formState.carruagem = ''; formState.externo = false; formState.empresaExterna = '';
+  formState.modal = modal; formState.usandoUltimo = false; formState.nome = null; formState.matricula = null; formState.carruagem = ''; formState.externo = false; formState.empresaExterna = ''; formState.mostrarOutro = false;
   const cap = capacidadeDe(modal);
   if(formState.selecionados.length > cap) formState.selecionados = formState.selecionados.slice(0, cap);
   if(formState.blocos.length > cap) formState.blocos = formState.blocos.slice(0, cap);
@@ -4224,9 +4247,11 @@ function viewConferente(){
     if(!comboioPossivel && formState.modal==='comboio' && !viagem) aplicarModal('camiao');
     const ehComboio = formState.modal==='comboio';
     const cap = capacidadeDe(formState.modal);
-    const labelPessoa = ehComboio ? 'Maquinista / locomotiva' : 'Motorista / viatura';
+    const labelPessoa = ehComboio ? 'Maquinista / locomotiva' : 'Viatura / motorista';
     const placeholderBusca = ehComboio ? 'Escrever locomotiva ou maquinista...' : 'Escrever matrícula ou nome...';
     const escolherPessoa = !embarque && (!entrada || guiaProducao || formState.trocaPessoa);
+    /* camião da empresa: matrícula primeiro, motorista sugerido a seguir (comboio e externo seguem o fluxo antigo) */
+    const novoFluxo = escolherPessoa && !ehComboio && !formState.externo;
     const pessoaDaGuia = entrada && !!viagem && !!viagem.guia && !formState.trocaPessoa;
     const numerosNoForm = entrada ? formState.selecionados : formState.blocos.map(x=>x.trim()).filter(Boolean);
     const pesoNoForm = numerosNoForm.reduce((s,n)=>{ const b = STATE.blocos.find(x=>x.numero===n); return s + (b && b.pesoKg ? b.pesoKg : 0); }, 0);
@@ -4250,9 +4275,18 @@ function viewConferente(){
           <button id="btn-troca-pessoa" class="btn ghost small" style="margin-bottom:14px;">Chegou ${ehComboio?'outro maquinista/locomotiva':'outro motorista/viatura'}</button>
         ` : `
           <p class="section-title" data-passo="pessoa">${labelPessoa}</p>
-          <div style="position:relative;margin-bottom:6px;"><input id="input-busca-pessoa" placeholder="${placeholderBusca}" style="width:100%;height:46px;border-radius:10px;border:2px solid var(--slate);padding:0 14px;font-size:14px;font-weight:500;background:var(--surface);color:var(--ink);" /></div>
+          <div style="position:relative;margin-bottom:6px;"><input id="input-busca-pessoa" placeholder="${novoFluxo ? 'Escrever matrícula ou nome do motorista...' : placeholderBusca}" style="width:100%;height:46px;border-radius:10px;border:2px solid var(--slate);padding:0 14px;font-size:14px;font-weight:500;background:var(--surface);color:var(--ink);" /></div>
           <div id="sugestoes-pessoa" style="margin-bottom:14px;"></div>
-          ${formState.externo ? `
+          ${novoFluxo ? ((formState.matricula || formState.nome) ? `
+            <div style="border:1px solid var(--moss);background:var(--moss-bg);border-radius:8px;padding:10px;margin-bottom:14px;">
+              <p style="font-size:11px;color:var(--ink-mute);margin:0 0 4px;">Viatura</p>
+              ${formState.matricula ? `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;"><span style="font-family:var(--mono);font-size:15px;font-weight:700;color:var(--ink);">${escH(formState.matricula)}</span><button id="btn-mudar-viatura" type="button" class="btn ghost small">Mudar</button></div>`
+                : `<input id="input-matricula-confirm" value="" placeholder="Matrícula (ex: LD-12-34-AB)" autocomplete="off" autocapitalize="characters" style="width:100%;height:38px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-size:14px;font-family:var(--mono);margin-bottom:8px;background:var(--surface);color:var(--ink);" />`}
+              <div id="viat-aviso"></div>
+              <p style="font-size:11px;color:var(--ink-mute);margin:0 0 6px;">Motorista</p>
+              <div id="sug-motorista"></div>
+            </div>
+          ` : `<p style="font-size:12px;color:var(--amber);margin:0 0 14px;">⚠ Escolhe primeiro a viatura (matrícula).</p>`) : formState.externo ? `
             <div style="border:1px solid var(--amber);background:var(--amber-bg);border-radius:8px;padding:10px;margin-bottom:14px;">
               <p style="font-size:11px;color:var(--ink-mute);margin:0 0 6px;">Motorista externo / viatura alugada — não fica na lista da empresa:</p>
               <input id="ext-nome" value="${escH(formState.nome)}" placeholder="Nome do motorista" autocomplete="off" style="width:100%;height:40px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-size:14px;margin-bottom:6px;background:var(--surface);color:var(--ink);" />
@@ -4396,7 +4430,110 @@ function viewConferente(){
     }
     const btnTroca = area.querySelector('#btn-troca-pessoa');
     if(btnTroca){ btnTroca.onclick = ()=>{ formState.trocaPessoa = true; formState.nome = null; formState.matricula = null; formState.externo = false; formState.empresaExterna = ''; renderForm(); }; }
-    if(escolherPessoa){
+    if(escolherPessoa && novoFluxo){
+      const inputPessoa = area.querySelector('#input-busca-pessoa');
+      const sugPessoa = area.querySelector('#sugestoes-pessoa');
+      const viat = bfViaturas();
+      const motAt = (STATE.motoristas||[]).filter(m=>m.activo!==false);
+      const temCard = !!(formState.matricula || formState.nome);
+      const btnExt = area.querySelector('#btn-externo');
+      if(btnExt) btnExt.onclick = ()=>{ formState.externo = true; formState.usandoUltimo = false; formState.nome = ''; formState.matricula = ''; formState.empresaExterna = ''; renderForm(); setTimeout(()=>{ const i = document.getElementById('ext-nome'); if(i) i.focus(); }, 80); };
+      const msg = (t, cor)=>{ const p = document.createElement('p'); p.style.cssText = 'font-size:12px;color:'+(cor||'var(--ink-mute)')+';margin:6px 0 0;'; p.textContent = t; return p; };
+      const linha = (a, b, onclick, opts)=>{
+        const row = document.createElement('div'); row.className = 'row'; row.style.cursor = 'pointer';
+        if(opts && opts.destaque){ row.style.border = '2px solid var(--moss)'; row.style.background = 'var(--moss-bg)'; }
+        row.innerHTML = `<span class="num" style="${opts && opts.mono===false ? 'font-family:var(--sans);' : 'font-family:var(--mono);'}font-weight:600;">${escH(a)}</span><span class="meta">${escH(b||'')}</span>`;
+        row.onclick = onclick; return row;
+      };
+      if(temCard){
+        if(inputPessoa && inputPessoa.parentElement) inputPessoa.parentElement.style.display = 'none';
+        if(sugPessoa) sugPessoa.style.display = 'none';
+      } else if(inputPessoa){
+        const escolherViatura = mat=>{ formState.matricula = mat; formState.nome = null; formState.usandoUltimo = false; formState.mostrarOutro = false; renderForm(); };
+        const mostrar = q=>{
+          sugPessoa.innerHTML = '';
+          const t = (q||'').trim();
+          if(!t){
+            if(STATE.ultimo.nome || STATE.ultimo.matricula) sugPessoa.appendChild(linha('★ '+(STATE.ultimo.nome||'—'), (STATE.ultimo.matricula||'')+' · último usado', ()=>{ preencherUltimo(formState.modal); formState.externo=false; formState.empresaExterna=''; renderForm(); }, { destaque:true, mono:false }));
+            else if(!viat.length) sugPessoa.appendChild(msg('Lista da empresa ainda não carregada. Toca em Atualizar ou usa «Motorista externo».'));
+            return;
+          }
+          const tm = bfMat(t), tn = bfNorm(t);
+          const vs = tm.length>=2 ? viat.filter(v=>bfMat(v.matricula).includes(tm)).slice(0,4) : [];
+          const ms = motAt.filter(m=>bfNorm(m.nome).includes(tn)).slice(0,4);
+          vs.forEach(v=> sugPessoa.appendChild(linha(v.matricula, [v.marca, v.ni ? 'NI '+v.ni : ''].filter(Boolean).join(' · '), ()=>escolherViatura(v.matricula))));
+          ms.forEach(m=> sugPessoa.appendChild(linha(m.nome, m.matricula||'sem viatura habitual', ()=>{ formState.nome = m.nome; formState.matricula = m.matricula||''; formState.usandoUltimo = false; renderForm(); }, { mono:false })));
+          if(!vs.length && !ms.length) sugPessoa.appendChild(msg('Nenhum resultado na lista.'));
+          const exacta = vs.some(v=>bfMat(v.matricula)===tm);
+          if(tm.length>=5 && /\d/.test(tm) && !exacta){
+            const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ghost small'; b.style.marginTop = '6px';
+            b.textContent = 'Usar «'+t.toUpperCase()+'» (matrícula fora da lista)';
+            b.onclick = ()=>escolherViatura(t.toUpperCase());
+            sugPessoa.appendChild(b);
+          }
+        };
+        inputPessoa.addEventListener('input', ()=> mostrar(inputPessoa.value));
+        mostrar('');
+      }
+      /* cartão da viatura + motorista */
+      const btnMudar = area.querySelector('#btn-mudar-viatura');
+      if(btnMudar) btnMudar.onclick = ()=>{ formState.matricula = null; formState.nome = null; formState.usandoUltimo = false; formState.mostrarOutro = false; renderForm(); setTimeout(()=>{ const i = document.getElementById('input-busca-pessoa'); if(i) i.focus(); }, 80); };
+      const im = area.querySelector('#input-matricula-confirm');
+      if(im){
+        im.addEventListener('input', ()=>{ im.value = im.value.toUpperCase(); });
+        im.addEventListener('change', ()=>{ formState.matricula = im.value.trim(); if(formState.matricula) renderForm(); });
+      }
+      const avisoV = area.querySelector('#viat-aviso');
+      if(avisoV && formState.matricula && !viat.some(v=>bfMat(v.matricula)===bfMat(formState.matricula))) avisoV.appendChild(msg('Matrícula que não está na lista de viaturas — podes continuar.', 'var(--amber)'));
+      const cardMot = area.querySelector('#sug-motorista');
+      if(cardMot){
+        const desenharMot = ()=>{
+          cardMot.innerHTML = '';
+          const sug = bfSugestoesMotorista(formState.matricula);
+          const sel = bfNorm(formState.nome);
+          const wrap = document.createElement('div'); wrap.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;';
+          sug.forEach(sg=>{
+            const b = document.createElement('button'); b.type = 'button'; b.className = 'btn small '+(sel && bfNorm(sg.nome)===sel ? 'primary' : 'ghost');
+            b.innerHTML = escH(sg.nome)+' <span style="font-weight:400;opacity:.75;font-size:11px;">· '+escH(sg.tag)+'</span>';
+            b.onclick = ()=>{ formState.nome = sg.nome; formState.usandoUltimo = false; formState.mostrarOutro = false; renderForm(); };
+            wrap.appendChild(b);
+          });
+          if(formState.nome && !sug.some(sg=>bfNorm(sg.nome)===sel)){
+            const b = document.createElement('button'); b.type = 'button'; b.className = 'btn small primary'; b.textContent = formState.nome; wrap.appendChild(b);
+          }
+          const bo = document.createElement('button'); bo.type = 'button'; bo.className = 'btn small ghost'; bo.textContent = formState.mostrarOutro ? 'Fechar' : 'Outro…';
+          bo.onclick = ()=>{ formState.mostrarOutro = !formState.mostrarOutro; desenharMot(); };
+          wrap.appendChild(bo);
+          cardMot.appendChild(wrap);
+          if(!sug.length && formState.matricula && !formState.mostrarOutro) cardMot.appendChild(msg('Esta viatura ainda não tem motorista habitual nem guias. Usa «Outro…».'));
+          if(formState.mostrarOutro){
+            const box = document.createElement('div'); box.style.cssText = 'margin-top:4px;';
+            box.innerHTML = '<input id="outro-nome" placeholder="Nome do motorista…" autocomplete="off" style="width:100%;height:38px;border-radius:8px;border:1px solid var(--border-strong);padding:0 10px;font-size:14px;background:var(--surface);color:var(--ink);margin-bottom:6px;" /><div id="outro-res"></div>';
+            cardMot.appendChild(box);
+            const inp = box.querySelector('#outro-nome'), res = box.querySelector('#outro-res');
+            const procurar = ()=>{
+              res.innerHTML = '';
+              const t = inp.value.replace(/\s+/g,' ').trim(); const tn = bfNorm(t);
+              if(!t) return;
+              const ms = motAt.filter(m=>bfNorm(m.nome).includes(tn)).slice(0,5);
+              ms.forEach(m=> res.appendChild(linha(m.nome, m.matricula ? 'habitual: '+m.matricula : 'sem viatura habitual', ()=>{ formState.nome = m.nome; formState.usandoUltimo = false; formState.mostrarOutro = false; renderForm(); }, { mono:false })));
+              if(t.length>=3 && !motAt.some(m=>bfNorm(m.nome)===tn)){
+                const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ghost small'; b.style.marginTop = '6px';
+                b.textContent = 'Usar «'+t+'» como motorista novo';
+                b.onclick = ()=>{ formState.nome = t; formState.usandoUltimo = false; formState.mostrarOutro = false; renderForm(); };
+                res.appendChild(b);
+              }
+            };
+            inp.addEventListener('input', procurar);
+            setTimeout(()=>{ try{ inp.focus(); }catch(e){} }, 30);
+          }
+          if(!formState.nome) cardMot.appendChild(msg('⚠ Falta escolher o motorista.', 'var(--amber)'));
+          else if(!motAt.some(m=>bfNorm(m.nome)===sel)) cardMot.appendChild(msg('Nome que não está na lista — segue na mesma e fica «Por validar» nas Equipas.', 'var(--amber)'));
+        };
+        desenharMot();
+      }
+    }
+    if(escolherPessoa && !novoFluxo){
       const inputPessoa = area.querySelector('#input-busca-pessoa');
       const sugPessoa = area.querySelector('#sugestoes-pessoa');
       const fontePessoa = ehComboio ? STATE.maquinistas.filter(m=>m.activo!==false).map(m=>({ nome:m.maquinista, ref:m.locomotiva })) : STATE.motoristas.filter(m=>m.activo!==false).map(m=>({ nome:m.nome, ref:m.matricula }));
@@ -4924,14 +5061,311 @@ const TR_SECCOES = [
   { id:'equipas',    label:'Equipas' },
 ];
 let trEquipaTipo = 'motoristas', trEquipaForm = null, trEquipaBusca = '';
+let trValidar = { dados:null, erro:null, carregando:false };
+const EQ_INP = 'width:100%;border-radius:8px;border:1px solid var(--border-strong);padding:8px 10px;font-size:13px;background:var(--surface);color:var(--ink);margin-bottom:8px;height:38px;';
+const eqErro = t=>`<p style="font-size:12.5px;color:var(--rust);margin:6px 0 0;">${escH(t)}</p>`;
+const eqMsgErro = e=> 'Não gravou no servidor: '+String((e && e.message) || e);
+const eqSincronizar = async ()=> window.bfSincronizar ? await window.bfSincronizar(false) : false;
+const eqPode = ()=>{ const papel = window.BF_USER && window.BF_USER.papel; return !!(window.sb && window.BF_USER) && ['transportes','admin'].includes(papel); };
+
+/* histórico de uma ficha (motorista = chave é o nome; viatura = chave é a matrícula) */
+function eqDesenharHistorico(hw, tipo, chave){
+  const ROT = { nome:'nome', viatura_habitual:'viatura habitual', matricula:'matrícula', marca:'marca', ni:'NI', tipo:'tipo' };
+  (async ()=>{
+    try{
+      if(!window.sb) throw new Error('sem ligação');
+      const {data,error} = await window.sb.from('equipa_historico').select('*').eq('tipo',tipo).eq('chave',chave).order('quando',{ascending:false}).limit(8);
+      if(error) throw error;
+      if(!hw.isConnected) return;
+      if(!data.length){ hw.innerHTML = '<p style="font-size:11.5px;color:var(--ink-mute);margin:0;">Sem histórico registado.</p>'; return; }
+      hw.innerHTML = '<p style="font-size:11.5px;color:var(--ink-mute);margin:0 0 4px;">Histórico</p>';
+      data.forEach(ev=>{
+        const d = ev.detalhe || {}; const t = new Date(ev.quando);
+        const quando = t.toLocaleDateString('pt-PT',{timeZone:'Africa/Luanda'})+' '+t.toLocaleTimeString('pt-PT',{timeZone:'Africa/Luanda',hour:'2-digit',minute:'2-digit',hour12:false});
+        let txt = ev.acao;
+        if(ev.acao==='criado') txt = 'Criado'+(d.viatura_habitual ? ' · viatura '+d.viatura_habitual : '');
+        else if(ev.acao==='alterado'){
+          const partes = Object.keys(d).map(k=>{
+            if(k==='juntado_de') return 'juntou «'+d[k]+'»'+(d.guias!=null ? ' ('+d.guias+' guias)' : '');
+            if(k==='guias') return '';
+            const v = d[k]; if(Array.isArray(v)) return (ROT[k]||k)+' '+(v[0]||'—')+' → '+(v[1]||'—'); return '';
+          }).filter(Boolean);
+          txt = 'Alterou: '+(partes.join(' · ') || '—');
+        }
+        else if(ev.acao==='desactivado') txt = 'Desativado';
+        else if(ev.acao==='reactivado') txt = 'Reativado';
+        const row = document.createElement('div'); row.style.cssText = 'font-size:11.5px;padding:3px 0;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;';
+        row.innerHTML = `<span>${escH(txt)}</span><span style="color:var(--ink-mute);white-space:nowrap;">${escH(ev.por_nome||'—')} · ${escH(quando)}</span>`;
+        hw.appendChild(row);
+      });
+    }catch(e){ if(hw.isConnected) hw.innerHTML = '<p style="font-size:11.5px;color:var(--ink-mute);margin:0;">Não foi possível carregar o histórico.</p>'; }
+  })();
+}
+
+async function eqCarregarValidar(redo){
+  if(!window.sb || !eqPode() || trValidar.carregando) return;
+  trValidar.carregando = true;
+  try{
+    const {data,error} = await window.sb.rpc('motoristas_por_validar');
+    if(error) throw error;
+    trValidar.dados = Array.isArray(data) ? data : []; trValidar.erro = null;
+  }catch(e){ trValidar.erro = String((e && e.message) || e); }
+  trValidar.carregando = false;
+  if(redo) redo();
+}
+
 function renderEquipasTransportes(content){
+  const pode = eqPode(), online = !!(window.sb && window.BF_USER);
+  const redo = ()=>{ if(content.isConnected) renderEquipasTransportes(content); };
+  const nVal = trValidar.dados ? trValidar.dados.length : null;
+  content.innerHTML = `
+    <div class="panel">
+      <p class="section-title">Equipas <span style="font-weight:400;color:var(--ink-mute);">— motoristas, viaturas e maquinistas</span></p>
+      <div id="eq-tipo" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+    </div>
+    <div id="eq-corpo"></div>`;
+  const tab = content.querySelector('#eq-tipo');
+  [['Motoristas','motoristas'],['Viaturas','viaturas'],['Maquinistas','maquinistas'],['Por validar'+(nVal ? ' ('+nVal+')' : ''),'validar']].forEach(([lb,v])=>{
+    if(v==='validar' && !pode) return;
+    const b = document.createElement('button'); b.className = 'btn small '+(trEquipaTipo===v ? 'primary' : 'ghost'); b.textContent = lb;
+    b.onclick = ()=>{ trEquipaTipo = v; trEquipaForm = null; trEquipaBusca = ''; if(v==='validar') trValidar.dados = null; redo(); };
+    tab.appendChild(b);
+  });
+  if(pode && trValidar.dados===null && !trValidar.carregando && !trValidar.erro) eqCarregarValidar(redo);
+  const corpo = content.querySelector('#eq-corpo');
+  if(trEquipaTipo==='motoristas') eqMotoristas(corpo, redo, pode, online);
+  else if(trEquipaTipo==='viaturas') eqViaturas(corpo, redo, pode, online);
+  else if(trEquipaTipo==='validar' && pode) eqPorValidar(corpo, redo);
+  else renderEquipasMaquinistas(corpo, redo);
+}
+
+/* ---------- Motoristas: o nome é a chave; a viatura habitual é opcional ---------- */
+function eqMotoristas(box, redo, pode, online){
+  const viaturas = bfViaturas().map(v=>v.matricula);
+  const lista = (STATE.motoristas||[]).map(r=>({ nome:r.nome||'', mat:r.matricula||'', activo:r.activo!==false })).sort((a,b)=>a.nome.localeCompare(b.nome,'pt'));
+  box.innerHTML = `
+    <div class="panel">
+      ${!online ? '<p style="font-size:12.5px;color:var(--ink-mute);margin:0 0 10px;">A gestão da lista está disponível quando estiveres ligado ao servidor.</p>'
+        : (pode ? '<button class="btn success small" id="eq-novo" style="margin-bottom:10px;">＋ Adicionar motorista</button>'
+                : '<p style="font-size:12.5px;color:var(--ink-mute);margin:0 0 10px;">Só os Transportes e o administrador alteram esta lista.</p>')}
+      <div id="eq-form"></div>
+      <input id="eq-busca" placeholder="Procurar por nome ou matrícula" value="${escH(trEquipaBusca)}" style="${EQ_INP}" />
+      <div id="eq-lista"></div>
+    </div>`;
+  const fw = box.querySelector('#eq-form');
+  function desenharForm(){
+    if(!trEquipaForm){ fw.innerHTML = ''; return; }
+    const ed = trEquipaForm.modo==='editar';
+    const reg = ed ? (lista.find(x=>x.nome===trEquipaForm.nome) || { nome:'', mat:'' }) : { nome: trEquipaForm.nome||'', mat: trEquipaForm.viatura||'' };
+    fw.innerHTML = `
+      <div style="border:1px solid var(--border-strong);border-radius:10px;padding:10px;margin-bottom:10px;">
+        <p style="font-size:12px;color:var(--ink-mute);margin:0 0 8px;">${ed ? 'A corrigir o registo' : 'Novo motorista'}</p>
+        <input id="eq-nome" value="${escH(reg.nome)}" placeholder="Nome do motorista" maxlength="80" style="${EQ_INP}" />
+        <input id="eq-id" list="eq-viat-list" value="${escH(reg.mat)}" placeholder="Viatura habitual (opcional)" maxlength="20" autocapitalize="characters" style="${EQ_INP}font-family:var(--mono);" />
+        <datalist id="eq-viat-list">${viaturas.map(m=>`<option value="${escH(m)}"></option>`).join('')}</datalist>
+        <div id="eq-warn"></div>
+        <div style="display:flex;gap:6px;"><button class="btn primary small" id="eq-guardar" style="flex:1;">Guardar</button><button class="btn ghost small" id="eq-cancelar">Cancelar</button></div>
+        ${ed ? '<div id="eq-hist" style="margin-top:10px;"></div>' : ''}
+      </div>`;
+    fw.querySelector('#eq-cancelar').onclick = ()=>{ trEquipaForm = null; desenharForm(); };
+    const warn = fw.querySelector('#eq-warn'), btn = fw.querySelector('#eq-guardar');
+    btn.onclick = async ()=>{
+      const nome = fw.querySelector('#eq-nome').value.replace(/\s+/g,' ').trim(), mat = fw.querySelector('#eq-id').value.trim().toUpperCase();
+      if(!nome){ warn.innerHTML = eqErro('Preenche o nome.'); return; }
+      if(mat && !viaturas.some(m=>bfMat(m)===bfMat(mat))){ warn.innerHTML = eqErro('Essa matrícula não está na lista de viaturas. Acrescenta-a primeiro na aba Viaturas.'); return; }
+      if(navigator.onLine===false){ warn.innerHTML = eqErro('Sem rede — tenta quando tiveres ligação.'); return; }
+      const canon = mat ? (viaturas.find(m=>bfMat(m)===bfMat(mat)) || mat) : '';
+      btn.disabled = true; warn.innerHTML = '<p style="font-size:12.5px;color:var(--ink-mute);margin:0 0 6px;">A gravar…</p>';
+      const p = { nome, viatura_habitual: canon }; if(ed) p.nome_antigo = trEquipaForm.nome;
+      try{
+        let r = await window.sb.rpc('guardar_motorista', { p }); if(r.error) throw r.error;
+        if(r.data && r.data.conflito){
+          if(!confirm(r.data.erro+'\n\nPassar a viatura para «'+nome+'»? «'+r.data.conflito+'» fica sem viatura habitual (continua na lista).')){ warn.innerHTML = ''; btn.disabled = false; return; }
+          p.transferir = true; r = await window.sb.rpc('guardar_motorista', { p }); if(r.error) throw r.error;
+        }
+        if(r.data && r.data.erro){ warn.innerHTML = eqErro(r.data.erro); btn.disabled = false; return; }
+        trEquipaForm = null; trValidar.dados = null;
+        const ok = await eqSincronizar();
+        if(!ok){ redo(); box.insertAdjacentHTML('afterbegin','<p style="font-size:12.5px;color:var(--moss);font-weight:600;">Gravado. Carrega em «Atualizar» para ver a lista nova.</p>'); }
+      }catch(e){ warn.innerHTML = eqErro(eqMsgErro(e)); btn.disabled = false; }
+    };
+    if(ed) eqDesenharHistorico(fw.querySelector('#eq-hist'), 'motorista', trEquipaForm.nome);
+  }
+  const lw = box.querySelector('#eq-lista');
+  function desenharLista(){
+    const q = bfNorm(trEquipaBusca), qm = bfMat(trEquipaBusca);
+    const ls = lista.filter(r=> !q || bfNorm(r.nome).includes(q) || (qm && bfMat(r.mat).includes(qm)));
+    lw.innerHTML = '';
+    if(!ls.length){ lw.innerHTML = `<p style="font-size:12.5px;color:var(--ink-mute);margin:0;">${lista.length ? 'Nada encontrado.' : 'Ainda não há registos.'}</p>`; return; }
+    ls.forEach(r=>{
+      const row = document.createElement('div'); row.className = 'row'; row.style.cssText = 'margin-bottom:6px;gap:8px;'+(r.activo ? '' : 'opacity:.6;');
+      row.innerHTML = `<span class="num" style="font-family:var(--sans);font-weight:600;">${escH(r.nome)}${r.activo ? '' : ' <span class="badge warn" style="font-weight:500;">inativo</span>'}</span><span class="meta" style="font-family:var(--mono);">${escH(r.mat||'sem viatura')}</span>`;
+      if(pode){
+        const be = document.createElement('button'); be.className = 'btn ghost small'; be.textContent = 'Editar';
+        be.onclick = ()=>{ trEquipaForm = { modo:'editar', nome:r.nome }; desenharForm(); if(fw.scrollIntoView) fw.scrollIntoView({block:'nearest'}); };
+        const ba = document.createElement('button'); ba.className = 'btn ghost small'; ba.textContent = r.activo ? 'Desativar' : 'Reativar';
+        ba.onclick = async ()=>{
+          if(!confirm((r.activo ? 'Desativar ' : 'Reativar ')+r.nome+'?'+(r.activo ? ' Deixa de aparecer nas sugestões do Conferente.' : ''))) return;
+          ba.disabled = true;
+          try{
+            const {data,error} = await window.sb.rpc('estado_motorista', { p:{ nome:r.nome, activo: !r.activo } });
+            if(error) throw error;
+            if(data && data.erro){ alert(data.erro); ba.disabled = false; return; }
+            await eqSincronizar();
+          }catch(e){ alert(eqMsgErro(e)); ba.disabled = false; }
+        };
+        row.appendChild(be); row.appendChild(ba);
+      }
+      lw.appendChild(row);
+    });
+  }
+  box.querySelector('#eq-busca').oninput = e=>{ trEquipaBusca = e.target.value; desenharLista(); };
+  const bn = box.querySelector('#eq-novo');
+  if(bn) bn.onclick = ()=>{ trEquipaForm = { modo:'novo' }; desenharForm(); };
+  desenharForm(); desenharLista();
+}
+
+/* ---------- Viaturas ---------- */
+function eqViaturas(box, redo, pode, online){
+  const lista = (STATE.viaturas||[]).map(v=>({ mat:v.matricula, marca:v.marca||'', ni:v.ni||'', tipo:v.tipo||'camiao', activo:v.activo!==false })).sort((a,b)=>a.mat.localeCompare(b.mat));
+  const condutores = mat=> (STATE.motoristas||[]).filter(m=>m.activo!==false && bfMat(m.matricula)===bfMat(mat)).map(m=>m.nome);
+  box.innerHTML = `
+    <div class="panel">
+      ${!online ? '<p style="font-size:12.5px;color:var(--ink-mute);margin:0 0 10px;">A gestão da lista está disponível quando estiveres ligado ao servidor.</p>'
+        : (pode ? '<button class="btn success small" id="eq-novo" style="margin-bottom:10px;">＋ Adicionar viatura</button>'
+                : '<p style="font-size:12.5px;color:var(--ink-mute);margin:0 0 10px;">Só os Transportes e o administrador alteram esta lista.</p>')}
+      <div id="eq-form"></div>
+      <input id="eq-busca" placeholder="Procurar por matrícula, marca, NI ou motorista" value="${escH(trEquipaBusca)}" style="${EQ_INP}" />
+      <div id="eq-lista"></div>
+    </div>`;
+  const fw = box.querySelector('#eq-form');
+  function desenharForm(){
+    if(!trEquipaForm){ fw.innerHTML = ''; return; }
+    const ed = trEquipaForm.modo==='editar';
+    const reg = ed ? (lista.find(x=>x.mat===trEquipaForm.mat) || { mat:'', marca:'', ni:'', tipo:'camiao' }) : { mat:'', marca:'', ni:'', tipo:'camiao' };
+    fw.innerHTML = `
+      <div style="border:1px solid var(--border-strong);border-radius:10px;padding:10px;margin-bottom:10px;">
+        <p style="font-size:12px;color:var(--ink-mute);margin:0 0 8px;">${ed ? 'A corrigir a viatura' : 'Nova viatura'}</p>
+        <input id="eq-mat" value="${escH(reg.mat)}" placeholder="Matrícula (ex: LD-12-34-AB)" maxlength="20" autocapitalize="characters" style="${EQ_INP}font-family:var(--mono);" />
+        <input id="eq-marca" value="${escH(reg.marca)}" placeholder="Marca / modelo (opcional)" maxlength="30" style="${EQ_INP}" />
+        <input id="eq-ni" value="${escH(reg.ni)}" placeholder="Nº interno (opcional)" maxlength="10" style="${EQ_INP}" />
+        <div id="eq-warn"></div>
+        <div style="display:flex;gap:6px;"><button class="btn primary small" id="eq-guardar" style="flex:1;">Guardar</button><button class="btn ghost small" id="eq-cancelar">Cancelar</button></div>
+        ${ed ? '<div id="eq-hist" style="margin-top:10px;"></div>' : ''}
+      </div>`;
+    fw.querySelector('#eq-cancelar').onclick = ()=>{ trEquipaForm = null; desenharForm(); };
+    const warn = fw.querySelector('#eq-warn'), btn = fw.querySelector('#eq-guardar');
+    btn.onclick = async ()=>{
+      const mat = fw.querySelector('#eq-mat').value.trim().toUpperCase(), marca = fw.querySelector('#eq-marca').value.trim(), ni = fw.querySelector('#eq-ni').value.trim();
+      if(mat.length<2){ warn.innerHTML = eqErro('Preenche a matrícula.'); return; }
+      if(lista.some(x=> bfMat(x.mat)===bfMat(mat) && !(ed && x.mat===trEquipaForm.mat))){ warn.innerHTML = eqErro('Essa matrícula já existe.'); return; }
+      if(navigator.onLine===false){ warn.innerHTML = eqErro('Sem rede — tenta quando tiveres ligação.'); return; }
+      btn.disabled = true; warn.innerHTML = '<p style="font-size:12.5px;color:var(--ink-mute);margin:0 0 6px;">A gravar…</p>';
+      const p = { matricula: mat, marca, ni, tipo: reg.tipo }; if(ed) p.matricula_antiga = trEquipaForm.mat;
+      try{
+        const {data,error} = await window.sb.rpc('guardar_viatura', { p });
+        if(error) throw error;
+        if(data && data.erro){ warn.innerHTML = eqErro(data.erro); btn.disabled = false; return; }
+        trEquipaForm = null;
+        const ok = await eqSincronizar();
+        if(!ok){ redo(); box.insertAdjacentHTML('afterbegin','<p style="font-size:12.5px;color:var(--moss);font-weight:600;">Gravado. Carrega em «Atualizar» para ver a lista nova.</p>'); }
+      }catch(e){ warn.innerHTML = eqErro(eqMsgErro(e)); btn.disabled = false; }
+    };
+    if(ed) eqDesenharHistorico(fw.querySelector('#eq-hist'), 'viatura', trEquipaForm.mat.toUpperCase());
+  }
+  const lw = box.querySelector('#eq-lista');
+  function desenharLista(){
+    const q = bfNorm(trEquipaBusca), qm = bfMat(trEquipaBusca);
+    const ls = lista.filter(r=> !q || (qm && bfMat(r.mat).includes(qm)) || bfNorm(r.marca).includes(q) || bfNorm(r.ni).includes(q) || condutores(r.mat).some(n=>bfNorm(n).includes(q)));
+    lw.innerHTML = '';
+    if(!ls.length){ lw.innerHTML = `<p style="font-size:12.5px;color:var(--ink-mute);margin:0;">${lista.length ? 'Nada encontrado.' : 'Ainda não há viaturas (carrega em Atualizar).'}</p>`; return; }
+    ls.forEach(r=>{
+      const cs = condutores(r.mat);
+      const row = document.createElement('div'); row.className = 'row'; row.style.cssText = 'margin-bottom:6px;gap:8px;'+(r.activo ? '' : 'opacity:.6;');
+      row.innerHTML = `<span class="num" style="font-weight:600;">${escH(r.mat)}${r.activo ? '' : ' <span class="badge warn" style="font-weight:500;">inativa</span>'}</span><span class="meta">${escH([r.marca, r.ni ? 'NI '+r.ni : '', cs.join(', ')].filter(Boolean).join(' · ') || '—')}</span>`;
+      if(pode){
+        const be = document.createElement('button'); be.className = 'btn ghost small'; be.textContent = 'Editar';
+        be.onclick = ()=>{ trEquipaForm = { modo:'editar', mat:r.mat }; desenharForm(); if(fw.scrollIntoView) fw.scrollIntoView({block:'nearest'}); };
+        const ba = document.createElement('button'); ba.className = 'btn ghost small'; ba.textContent = r.activo ? 'Desativar' : 'Reativar';
+        ba.onclick = async ()=>{
+          if(!confirm((r.activo ? 'Desativar ' : 'Reativar ')+r.mat+'?'+(r.activo ? ' Deixa de aparecer nas sugestões do Conferente.' : ''))) return;
+          ba.disabled = true;
+          try{
+            const {data,error} = await window.sb.rpc('estado_viatura', { p:{ matricula:r.mat, activo: !r.activo } });
+            if(error) throw error;
+            if(data && data.erro){ alert(data.erro); ba.disabled = false; return; }
+            await eqSincronizar();
+          }catch(e){ alert(eqMsgErro(e)); ba.disabled = false; }
+        };
+        row.appendChild(be); row.appendChild(ba);
+      }
+      lw.appendChild(row);
+    });
+  }
+  box.querySelector('#eq-busca').oninput = e=>{ trEquipaBusca = e.target.value; desenharLista(); };
+  const bn = box.querySelector('#eq-novo');
+  if(bn) bn.onclick = ()=>{ trEquipaForm = { modo:'novo' }; desenharForm(); };
+  desenharForm(); desenharLista();
+}
+
+/* ---------- Por validar: nomes que apareceram nas guias e não estão na lista ---------- */
+function eqPorValidar(box, redo){
+  box.innerHTML = `<div class="panel"><p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 10px;">Nomes escritos no Conferente que não estão na lista de motoristas. <b>Registar</b> acrescenta-o à lista; <b>Juntar a…</b> é para quando é só uma grafia errada de alguém que já existe (as guias passam ao nome certo).</p><div id="val-lista"></div></div>`;
+  const lw = box.querySelector('#val-lista');
+  if(trValidar.erro){ lw.innerHTML = eqErro('Não foi possível carregar: '+trValidar.erro+' (as funções do ficheiro frota_4 já foram corridas?)'); return; }
+  if(trValidar.dados===null){ lw.innerHTML = '<p style="font-size:12.5px;color:var(--ink-mute);margin:0;">A carregar…</p>'; return; }
+  if(!trValidar.dados.length){ lw.innerHTML = '<p style="font-size:12.5px;color:var(--moss);margin:0;">Nada por validar.</p>'; return; }
+  const ativos = (STATE.motoristas||[]).filter(m=>m.activo!==false);
+  trValidar.dados.forEach(r=>{
+    const nome = String(r.nome||'').replace(/[<>"`\\]/g,''); const viat = (r.viaturas||[]).map(x=>String(x).replace(/[<>"`\\]/g,''));
+    const quando = r.ultima ? new Date(r.ultima).toLocaleDateString('pt-PT',{timeZone:'Africa/Luanda'}) : '—';
+    const card = document.createElement('div'); card.style.cssText = 'border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px;';
+    card.innerHTML = `<div style="font-weight:600;font-size:13.5px;">${escH(nome)}</div>
+      <div style="font-size:12px;color:var(--ink-mute);margin:2px 0 8px;">${escH(r.guias)} guia(s) · última ${escH(quando)}${viat.length ? ' · '+escH(viat.join(', ')) : ''}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn success small" data-a="reg">Registar</button><button class="btn ghost small" data-a="jun">Juntar a…</button></div>
+      <div data-w="jun" style="margin-top:8px;"></div>`;
+    card.querySelector('[data-a=reg]').onclick = ()=>{
+      /* só propõe a viatura se há uma só, ela existe e ninguém a tem como habitual */
+      let v = '';
+      if(viat.length===1 && bfViaturas().some(x=>bfMat(x.matricula)===bfMat(viat[0])) && !ativos.some(m=>bfMat(m.matricula)===bfMat(viat[0]))) v = viat[0];
+      trEquipaTipo = 'motoristas'; trEquipaBusca = ''; trEquipaForm = { modo:'novo', nome, viatura:v }; redo();
+    };
+    const jw = card.querySelector('[data-w=jun]');
+    card.querySelector('[data-a=jun]').onclick = ()=>{
+      if(jw.firstChild){ jw.innerHTML = ''; return; }
+      jw.innerHTML = `<input placeholder="Procurar o motorista certo…" style="${EQ_INP}" /><div></div>`;
+      const inp = jw.querySelector('input'), res = jw.querySelector('div');
+      const proc = ()=>{
+        res.innerHTML = ''; const t = bfNorm(inp.value); if(!t) return;
+        ativos.filter(m=>bfNorm(m.nome).includes(t)).slice(0,6).forEach(m=>{
+          const row = document.createElement('div'); row.className = 'row'; row.style.cssText = 'cursor:pointer;margin-bottom:4px;';
+          row.innerHTML = `<span class="num" style="font-family:var(--sans);font-weight:600;">${escH(m.nome)}</span><span class="meta" style="font-family:var(--mono);">${escH(m.matricula||'sem viatura')}</span>`;
+          row.onclick = async ()=>{
+            if(!confirm('Passar as '+r.guias+' guia(s) de «'+nome+'» para «'+m.nome+'»?\n\nO nome nas guias é reescrito (fica no histórico de «'+m.nome+'»).')) return;
+            try{
+              const {data,error} = await window.sb.rpc('juntar_motorista', { p:{ nome_origem:nome, nome_destino:m.nome } });
+              if(error) throw error;
+              if(data && data.erro){ alert(data.erro); return; }
+              trValidar.dados = null; const ok = await eqSincronizar(); if(!ok) redo();
+            }catch(e){ alert(eqMsgErro(e)); }
+          };
+          res.appendChild(row);
+        });
+      };
+      inp.addEventListener('input', proc); inp.focus();
+    };
+    lw.appendChild(card);
+  });
+}
+
+function renderEquipasMaquinistas(content, redo){
   const papel = window.BF_USER && window.BF_USER.papel;
   const online = !!(window.sb && window.BF_USER);
   const pode = online && ['transportes','admin'].includes(papel);
-  const ehMot = trEquipaTipo==='motoristas';
+  const ehMot = false;
   const tipo = ehMot ? 'motorista' : 'maquinista';
   const rotuloId = ehMot ? 'Matrícula' : 'Locomotiva';
-  const lista = (STATE[trEquipaTipo] || []).map(r=>({ nome: r.nome || r.maquinista || '', id: ehMot ? (r.matricula||'') : (r.locomotiva||''), activo: r.activo !== false }))
+  const lista = (STATE.maquinistas || []).map(r=>({ nome: r.nome || r.maquinista || '', id: ehMot ? (r.matricula||'') : (r.locomotiva||''), activo: r.activo !== false }))
                   .sort((a,b)=> a.nome.localeCompare(b.nome,'pt'));
   const inp = 'width:100%;border-radius:8px;border:1px solid var(--border-strong);padding:8px 10px;font-size:13px;background:var(--surface);color:var(--ink);margin-bottom:8px;height:38px;';
   const erroH = t=>`<p style="font-size:12.5px;color:var(--rust);margin:6px 0 0;">${escH(t)}</p>`;
@@ -4940,8 +5374,7 @@ function renderEquipasTransportes(content){
 
   content.innerHTML = `
     <div class="panel">
-      <p class="section-title">Equipas <span style="font-weight:400;color:var(--ink-mute);">— motoristas e maquinistas</span></p>
-      <div id="eq-tipo" style="display:flex;gap:6px;margin-bottom:10px;"></div>
+      <p class="section-title">Maquinistas</p>
       ${!online ? '<p style="font-size:12.5px;color:var(--ink-mute);margin:0 0 10px;">A gestão da lista está disponível quando estiveres ligado ao servidor.</p>'
         : (pode ? '<button class="btn success small" id="eq-novo" style="margin-bottom:10px;">＋ Adicionar</button>'
                 : '<p style="font-size:12.5px;color:var(--ink-mute);margin:0 0 10px;">Só os Transportes e o administrador alteram esta lista.</p>')}
@@ -4949,13 +5382,6 @@ function renderEquipasTransportes(content){
       <input id="eq-busca" placeholder="Procurar por nome ou ${ehMot ? 'matrícula' : 'locomotiva'}" value="${escH(trEquipaBusca)}" style="${inp}" />
       <div id="eq-lista"></div>
     </div>`;
-
-  const tab = content.querySelector('#eq-tipo');
-  [['Motoristas','motoristas'],['Maquinistas','maquinistas']].forEach(([lb,v])=>{
-    const b = document.createElement('button'); b.className = 'btn small '+(trEquipaTipo===v ? 'primary' : 'ghost'); b.textContent = lb;
-    b.onclick = ()=>{ trEquipaTipo = v; trEquipaForm = null; trEquipaBusca = ''; renderEquipasTransportes(content); };
-    tab.appendChild(b);
-  });
 
   const fw = content.querySelector('#eq-form');
   function desenharForm(){
@@ -4986,7 +5412,7 @@ function renderEquipasTransportes(content){
         if(data && data.erro){ warn.innerHTML = erroH(data.erro); btn.disabled = false; return; }
         trEquipaForm = null;
         const ok = await sincronizar();
-        if(!ok){ renderEquipasTransportes(content); content.insertAdjacentHTML('afterbegin','<p style="font-size:12.5px;color:var(--moss);font-weight:600;">Gravado. Carrega em «Atualizar» para ver a lista nova.</p>'); }
+        if(!ok){ redo(); content.insertAdjacentHTML('afterbegin','<p style="font-size:12.5px;color:var(--moss);font-weight:600;">Gravado. Carrega em «Atualizar» para ver a lista nova.</p>'); }
       }catch(e){ warn.innerHTML = erroH(msgErro(e)); btn.disabled = false; }
     };
     if(ed){
@@ -7123,7 +7549,7 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
     emSync = true;
     if(!auto) aviso('⏳ A atualizar…');
     try{
-      const [bl,pr,cl,mo,ma,gu,gb,li,mi] = await Promise.all([ler('blocos','numero'),ler('processos','codigo'),ler('clientes','codigo'),ler('motoristas','nome'),ler('maquinistas','nome'),ler('guias','registado_em,id'),ler('guia_blocos','guia_id,bloco'),ler('liberacoes','quando,id'),ler('missoes','criada_em,id').catch(()=>[])]);
+      const [bl,pr,cl,mo,ma,gu,gb,li,mi,vi] = await Promise.all([ler('blocos','numero'),ler('processos','codigo'),ler('clientes','codigo'),ler('motoristas','nome'),ler('maquinistas','nome'),ler('guias','registado_em,id'),ler('guia_blocos','guia_id,bloco'),ler('liberacoes','quando,id'),ler('missoes','criada_em,id').catch(()=>[]),ler('viaturas','matricula').catch(()=>null)]);
       STATE.blocos = bl.map(blocoDoServidor);
       /* guias do servidor -> lista de confirmações, números usados e dados da viagem dos blocos em trânsito */
       const blocosDaGuia = new Map(); gb.forEach(r=>{ if(!blocosDaGuia.has(r.guia_id)) blocosDaGuia.set(r.guia_id, []); blocosDaGuia.get(r.guia_id).push(r.bloco); });
@@ -7158,6 +7584,7 @@ const BF_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
         dataCarregamento:fmt(p.data_embarque), dataPosicionamento:fmt(p.data_posicionamento), estado:p.estado==='activo'?'activa':'encerrada' }));
       STATE.missoesNovas = (mi||[]).slice().sort((a,b)=> new Date(b.criada_em)-new Date(a.criada_em)).map(x=>({ id:x.id, navio:limpa(x.navio), tipo:x.tipo, local_carregamento:limpa(x.local_carregamento),
         meta_blocos:+x.meta_blocos, meta_ton:x.meta_ton!=null?+x.meta_ton:null, prazo_posicionamento:x.prazo_posicionamento, data_embarque:x.data_embarque, estado:x.estado, criada_em:x.criada_em }));
+      if(vi && vi.length) STATE.viaturas = vi.map(v=>({ matricula:limpa(v.matricula), marca:limpa(v.marca)||null, ni:limpa(v.ni)||null, tipo:limpa(v.tipo)||'camiao', activo:v.activo!==false }));
       if(mo.length) STATE.motoristas = mo.map(m=>({ nome:limpa(m.nome), matricula:limpa(m.matricula), activo:m.activo }));
       if(ma.length) STATE.maquinistas = ma.map(m=>({ maquinista:limpa(m.nome||m.maquinista), locomotiva:limpa(m.locomotiva||m.loco||''), nome:limpa(m.nome||m.maquinista), activo:m.activo }));
       if(!(auto && aEscrever())) render();
