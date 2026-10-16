@@ -256,7 +256,7 @@
       <img class="mark-img" alt="HMGranitos" title="Eliazardo Tchissanda João Calui · 2026" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGUAAABBCAYAAADIQWrvAAADQklEQVR42u2dy4oTQRSGv74kE1AEQQZBX0G8oAvdCe7cic/gA+jsXLjQpSg+hS7cuBKUUXBAwQdwow7MzowyMt4yTtJpF6nGSpNbd1V6cvl/CEl60mfS56tzTlVXdSdYub7GEAVAijSpAvPs7LNwgFFKGg+XHErswUYIhLaho8AVYzwBIqBjPhgMiaLAPH4C68DvJY6SFDgJXLK2BQVgNIE3QNuGcgJ4XLLFN4FTSw6lA5wBnpS0sQFcBfbzAJKSBluewndelVr+a5e00QG6g2qKi8FUUCZOV4PUzeyEOcNli3XNIcoWDU7XsffmtccUiImTD6Js/3AKISw5+i+WLyrTQ+D5kFQfAd+A/fw4RZqu3gEvx6S+UJFSnezi/wC4nOvpxsBbYA3YE5TqFJnns2aQOWis573QS8MV8v9sx+6IAbgKfcU6DXwBVichKFWju8B74GJVUDRw9JzrfPUuNHj05AdfNSWxeheLEjXZfEhi/JQy/PyePb8UuwaJLyix1RdflIixj6NTAGTq0Ai8F/q9JU73qfX3WknbK77T1zHgPvDDSmPznrqy+hACDeAp8HrMfh+Am8YHSYFUHgNb9M59eYNyCLix4FGyBbwa49jP9E48OtUxjVOKdWZGqeOhk5MCqaCUK/wun6lsnCLN4OBREhRBkQRFEhRBkQRFUCRBERSpSs3iapZd4BG9E3xt4BpwoaStDeCFaXyJsXVOUIrrO3DHer/qAGUduGe9Pz4PUGY1fdU9NZx4hF1BKajA03ecy0UcPtNXSv9ctYsjuzm7Lt9paaFsA7eAHVNQz5u6UPMEW72vEmoBz+hdTw/wC7jtCYrGKQ5qWK8FY0agpDm7kdx7sFCSAdGhS7gPGEqUg9BFK/FnLn1JCzh4FBRJUCRBERRJUARFEhRBkQRFEhRBkQRlwaFk14uXUcOzLVsus5j5fesebU1N9hz9X+ATcJj+W3oMmxfJ5kzqwCb9t8r4A3wEjlDsUuaasWVrm94CvVYJJ37NbWvSW9yR3YVu1PFlq3OyBrZTFZTA+qmO7GYvRX9yIju4dm6bL1uReRSZr8n+b0L/5FtsnJxS7D4qwQBblURK3hku8mnLpzM6zIH+AdGkpMjDeKg0AAAAAElFTkSuQmCC">
       <div>
         <p class="title" style="margin:0;">block<span class="f">flow</span></p>
-        <p class="subtitle" style="margin:0;">Controlo de Blocos · HMGranitos · v1.2</p>
+        <p class="subtitle" style="margin:0;">Controlo de Blocos · HMGranitos · v1.4</p>
       </div>
     </div>
     <div class="roles" id="roles"></div>
@@ -3243,7 +3243,7 @@ function renderRoles(){
 }
 
 /* ---------------- PRODUÇÃO ---------------- */
-function viewProducao(){
+function viewProducaoRegisto(){
   const wrap = document.createElement('div');
   wrap.className = 'phone-wrap';
   const phone = document.createElement('div');
@@ -5043,6 +5043,7 @@ const TR_SECCOES = [
   { id:'viatura',    label:'Por camião/comboio' },
   { id:'pessoa',     label:'Por motorista' },
   { id:'elo',        label:'Por elo' },
+  { id:'parques',    label:'Parques' },
   { id:'restantes',  label:'Restantes por processo' },
   { id:'concluidos', label:'Concluídos' },
   { id:'equipas',    label:'Equipas' },
@@ -5327,6 +5328,8 @@ function viewTransportes(){
       row.innerHTML = `<span class="num" style="font-family:var(--sans);font-weight:600;">${p.processo}</span><span class="meta">${p.restam} bloco(s) por transportar de ${p.total} · ${formatarTonTotal(p.peso)}</span>`;
       restWrap.appendChild(row);
     });
+  } else if(trSeccao==='parques'){
+    renderHubs(content);
   } else if(trSeccao==='equipas'){
     renderEquipasTransportes(content);
   } else if(trSeccao==='concluidos'){
@@ -5356,6 +5359,7 @@ let dirSeccao = 'missoes';
 const DIR_SECCOES = [
   { id:'missoes',    label:'Missões' },
   { id:'transporte', label:'Transporte diário' },
+  { id:'parques',    label:'Parques' },
   { id:'processos',  label:'Processos' },
 ];
 /* ---------------- DIREÇÃO: resumo diário por elo (rascunho) ---------------- */
@@ -5643,6 +5647,8 @@ function viewDiretor(){
         </div>`}
       </div>
       `;
+    } else if(dirSeccao==='parques'){
+      renderHubs(content);
     } else if(dirSeccao==='processos'){
       content.innerHTML = `
       <div class="panel">
@@ -6031,113 +6037,6 @@ function viewLogistica(){
       row.className = 'row';
       row.innerHTML = `<span class="num"><span class="seta-exp" style="display:inline-block;width:12px;color:var(--slate);">▸</span> ${blocosTxt}${peso?(' · '+peso):''} · ${idTxt}</span><span class="meta">${ic} ${g.de} → ${g.para} · ${g.data} ${g.hora}</span>`;
       pulso.appendChild(tornarExpansivel(row, g));
-    });
-  }
-
-  function renderHubs(content){
-    const counts = contagemPorOrigem();
-    const pesos = pesoPorParque();
-    const emTransito = STATE.blocos.filter(b=> (b.local||'').startsWith('A caminho de')).length;
-    const pesoTransito = STATE.blocos.filter(b=> (b.local||'').startsWith('A caminho de')).reduce((s,b)=>s+pesoDeBloco(b),0);
-    const embarcados = STATE.blocos.filter(b=> (b.local||'').startsWith('Embarcado')).length;
-    const pesoEmbarcado = STATE.blocos.filter(b=> (b.local||'').startsWith('Embarcado')).reduce((s,b)=>s+pesoDeBloco(b),0);
-    const anulados = STATE.blocos.filter(b=> b.estado==='anulado').length;
-    content.innerHTML = `
-      <div class="panel" style="margin-bottom:14px;">
-        <p class="section-title">Parques — toca para ver o stock <span style="font-weight:400;color:var(--ink-mute);">(blocos · toneladas)</span></p>
-        <div class="grid g3" id="hubs-lista"></div>
-        <p style="font-size:11.5px;color:var(--ink-mute);margin:10px 0 0;">Fora dos parques: ${emTransito} em trânsito · ${formatarTonTotal(pesoTransito)} · ${embarcados} já embarcados · ${formatarTonTotal(pesoEmbarcado)}${anulados?` · ${anulados} anulados`:''}</p>
-      </div>
-      <div id="hub-detalhe"></div>
-    `;
-    const lista = content.querySelector('#hubs-lista');
-    Object.keys(counts).forEach(loc=>{
-      const blocosLoc = STATE.blocos.filter(b=> parqueDe(b)===loc);
-      const porProc = new Map();
-      blocosLoc.forEach(b=>{
-        const v = b.processo || 'Sem processo';
-        const cur = porProc.get(v) || { n:0, peso:0 };
-        cur.n += 1; cur.peso += pesoDeBloco(b);
-        porProc.set(v, cur);
-      });
-      const ordenado = [...porProc.entries()].sort((a,b)=> b[1].n - a[1].n);
-      const TOP = 3;
-      const linhas = ordenado.slice(0, TOP).map(([nome,v])=> `<span>${nome}<b>${v.n} · ${formatarTon(v.peso)}</b></span>`).join('');
-      const resto = ordenado.length > TOP ? `<span style="font-style:italic;">+${ordenado.length-TOP} outro(s) processo(s)</span>` : '';
-      const c = document.createElement('div');
-      c.className = 'hub-card' + (loc==='Sogester' ? ' destaque' : '');
-      c.innerHTML = `
-        <p class="hub-label">${loc}${loc==='Sogester'?' · terminal':''}<span class="live-dot"></span></p>
-        <p class="hub-total">${counts[loc]}</p>
-        <p class="hub-tons">${formatarTonTotal(pesos[loc]||0)}</p>
-        <div class="hub-breakdown">${linhas}${resto}</div>
-      `;
-      c.onclick = ()=>{ logHubDetalhe = loc; logHubFiltroCliente=null; logHubFiltroProcesso=null; render(); };
-      lista.appendChild(c);
-    });
-    if(!logHubDetalhe || counts[logHubDetalhe]===undefined) return;
-    const detalhe = content.querySelector('#hub-detalhe');
-    let blocosHub = STATE.blocos.filter(b=> parqueDe(b)===logHubDetalhe);
-    const SEM_PROCESSO = 'Sem processo (stock livre)';
-    const porCliente = contarPorCampo(blocosHub, 'clienteDerivado', 'Sem cliente');
-    const porProcesso = contarPorCampo(blocosHub, 'processo', SEM_PROCESSO);
-    const pesoHub = somaPeso(blocosHub);
-    detalhe.innerHTML = `
-      <div class="panel">
-        <button class="backbtn" id="back-hub">← voltar aos parques</button>
-        <p style="font-size:14px;font-weight:600;margin:0 0 4px;">${logHubDetalhe} · ${blocosHub.length} bloco(s)</p>
-        <p style="font-size:13px;color:var(--slate);font-family:var(--mono);font-weight:600;margin:0 0 8px;">${formatarTonTotal(pesoHub)} em parque</p>
-        <p class="section-title">Quantidade e tonelagem por processo</p>
-        <div style="margin-bottom:12px;" id="hub-f-processo"></div>
-        <p class="section-title">Quantidade e tonelagem por cliente</p>
-        <div style="margin-bottom:12px;" id="hub-f-cliente"></div>
-        <p class="section-title">Blocos${logHubFiltroProcesso||logHubFiltroCliente?' (filtrado)':''}</p>
-        <div id="hub-blocos"></div>
-      </div>
-    `;
-    detalhe.querySelector('#back-hub').onclick = ()=>{ logHubDetalhe=null; render(); };
-    function contarPorCampo(lista, campo, semLabel){
-      const map = new Map();
-      lista.forEach(b=>{
-        const v = (campo==='clienteDerivado' ? clienteDeBloco(b) : b[campo]) || semLabel;
-        const cur = map.get(v) || { n:0, peso:0 };
-        cur.n += 1; cur.peso += pesoDeBloco(b);
-        map.set(v, cur);
-      });
-      return [...map.entries()].sort((a,b)=> b[1].n - a[1].n);
-    }
-    function breakdownList(wrapId, entries, totalCount, totalPeso, actual, onPick){
-      const wrap = detalhe.querySelector(wrapId);
-      if(!wrap) return;
-      const allRow = document.createElement('div');
-      allRow.className = 'row'; allRow.style.cursor = 'pointer';
-      if(!actual) allRow.style.border = '1.5px solid var(--slate)';
-      allRow.innerHTML = `<span class="num" style="font-family:var(--sans);font-weight:600;">Todos</span><span class="meta">${totalCount} bloco(s) · ${formatarTonTotal(totalPeso)}</span>`;
-      allRow.onclick = ()=> onPick(null);
-      wrap.appendChild(allRow);
-      entries.forEach(([label,v])=>{
-        const row = document.createElement('div');
-        row.className = 'row'; row.style.cursor = 'pointer';
-        if(actual===label) row.style.border = '1.5px solid var(--slate)';
-        row.innerHTML = `<span class="num" style="font-family:var(--sans);font-weight:600;">${label}</span><span class="meta">${v.n} bloco(s) · ${formatarTonTotal(v.peso)}</span>`;
-        row.onclick = ()=> onPick(label);
-        wrap.appendChild(row);
-      });
-    }
-    breakdownList('#hub-f-processo', porProcesso, blocosHub.length, pesoHub, logHubFiltroProcesso, (v)=>{ logHubFiltroProcesso=v; render(); });
-    breakdownList('#hub-f-cliente', porCliente, blocosHub.length, pesoHub, logHubFiltroCliente, (v)=>{ logHubFiltroCliente=v; render(); });
-    if(logHubFiltroProcesso) blocosHub = blocosHub.filter(b=> logHubFiltroProcesso===SEM_PROCESSO ? !b.processo : b.processo===logHubFiltroProcesso);
-    if(logHubFiltroCliente) blocosHub = blocosHub.filter(b=>{ const c=clienteDeBloco(b)||'Sem cliente'; return logHubFiltroCliente==='Sem cliente' ? !clienteDeBloco(b) : c===logHubFiltroCliente; });
-    const lw = detalhe.querySelector('#hub-blocos');
-    if(blocosHub.length===0) lw.innerHTML = '<p style="font-size:12.5px;color:var(--ink-mute);">Sem blocos com este filtro.</p>';
-    else blocosHub.forEach(b=>{
-      const c = clienteDeBloco(b);
-      const row = document.createElement('div');
-      row.className = 'row';
-      const proc = b.processo ? b.processo : '⚠ sem processo';
-      const peso = b.pesoKg ? ` · ${formatarTon(b.pesoKg)}` : '';
-      row.innerHTML = `<span class="num">Bloco ${b.numero}${c?(' · '+c):''}${peso}</span><span class="meta">${proc}</span>`;
-      lw.appendChild(row);
     });
   }
 
@@ -7016,6 +6915,144 @@ function viewLogistica(){
 
 
 /* ---------------- RENDER PRINCIPAL ---------------- */
+let prodVista = 'registo';
+function barraProducao(){
+  const bar = document.createElement('div');
+  bar.style.cssText = 'display:flex;gap:6px;padding:10px 14px 0;';
+  [['registo','Registo'],['parques','Parques']].forEach(([id, lbl])=>{
+    const bt = document.createElement('button'); bt.type = 'button';
+    bt.className = 'btn small ' + (prodVista===id ? 'primary' : 'ghost');
+    bt.style.flex = '1'; bt.textContent = lbl;
+    bt.onclick = ()=>{ prodVista = id; render(); };
+    bar.appendChild(bt);
+  });
+  return bar;
+}
+function viewProducao(){
+  if(prodVista === 'parques'){
+    const wrap = document.createElement('div'); wrap.className = 'phone-wrap';
+    const phone = document.createElement('div'); phone.className = 'phone phone-web';
+    phone.innerHTML = '<div class="phone-head"><p class="m1">Parques</p><p class="m2">Stock por parque · só leitura</p></div>';
+    phone.appendChild(barraProducao());
+    const corpo = document.createElement('div'); corpo.className = 'phone-corpo-parques'; corpo.style.cssText = 'padding:14px;';
+    phone.appendChild(corpo); wrap.appendChild(phone);
+    renderHubs(corpo);
+    return wrap;
+  }
+  const node = viewProducaoRegisto();
+  const head = node.querySelector('.phone-head');
+  if(head) head.insertAdjacentElement('afterend', barraProducao());
+  return node;
+}
+
+/* Parques (stock por parque) — só leitura; partilhado por Logística, Transportes, Direção e Produção */
+function renderHubs(content){
+  const counts = contagemPorOrigem();
+  const pesos = pesoPorParque();
+  const emTransito = STATE.blocos.filter(b=> (b.local||'').startsWith('A caminho de')).length;
+  const pesoTransito = STATE.blocos.filter(b=> (b.local||'').startsWith('A caminho de')).reduce((s,b)=>s+pesoDeBloco(b),0);
+  const embarcados = STATE.blocos.filter(b=> (b.local||'').startsWith('Embarcado')).length;
+  const pesoEmbarcado = STATE.blocos.filter(b=> (b.local||'').startsWith('Embarcado')).reduce((s,b)=>s+pesoDeBloco(b),0);
+  const anulados = STATE.blocos.filter(b=> b.estado==='anulado').length;
+  content.innerHTML = `
+    <div class="panel" style="margin-bottom:14px;">
+      <p class="section-title">Parques — toca para ver o stock <span style="font-weight:400;color:var(--ink-mute);">(blocos · toneladas)</span></p>
+      <div class="grid g3" id="hubs-lista"></div>
+      <p style="font-size:11.5px;color:var(--ink-mute);margin:10px 0 0;">Fora dos parques: ${emTransito} em trânsito · ${formatarTonTotal(pesoTransito)} · ${embarcados} já embarcados · ${formatarTonTotal(pesoEmbarcado)}${anulados?` · ${anulados} anulados`:''}</p>
+    </div>
+    <div id="hub-detalhe"></div>
+  `;
+  const lista = content.querySelector('#hubs-lista');
+  Object.keys(counts).forEach(loc=>{
+    const blocosLoc = STATE.blocos.filter(b=> parqueDe(b)===loc);
+    const porProc = new Map();
+    blocosLoc.forEach(b=>{
+      const v = b.processo || 'Sem processo';
+      const cur = porProc.get(v) || { n:0, peso:0 };
+      cur.n += 1; cur.peso += pesoDeBloco(b);
+      porProc.set(v, cur);
+    });
+    const ordenado = [...porProc.entries()].sort((a,b)=> b[1].n - a[1].n);
+    const TOP = 3;
+    const linhas = ordenado.slice(0, TOP).map(([nome,v])=> `<span>${nome}<b>${v.n} · ${formatarTon(v.peso)}</b></span>`).join('');
+    const resto = ordenado.length > TOP ? `<span style="font-style:italic;">+${ordenado.length-TOP} outro(s) processo(s)</span>` : '';
+    const c = document.createElement('div');
+    c.className = 'hub-card' + (loc==='Sogester' ? ' destaque' : '');
+    c.innerHTML = `
+      <p class="hub-label">${loc}${loc==='Sogester'?' · terminal':''}<span class="live-dot"></span></p>
+      <p class="hub-total">${counts[loc]}</p>
+      <p class="hub-tons">${formatarTonTotal(pesos[loc]||0)}</p>
+      <div class="hub-breakdown">${linhas}${resto}</div>
+    `;
+    c.onclick = ()=>{ logHubDetalhe = loc; logHubFiltroCliente=null; logHubFiltroProcesso=null; render(); };
+    lista.appendChild(c);
+  });
+  if(!logHubDetalhe || counts[logHubDetalhe]===undefined) return;
+  const detalhe = content.querySelector('#hub-detalhe');
+  let blocosHub = STATE.blocos.filter(b=> parqueDe(b)===logHubDetalhe);
+  const SEM_PROCESSO = 'Sem processo (stock livre)';
+  const porCliente = contarPorCampo(blocosHub, 'clienteDerivado', 'Sem cliente');
+  const porProcesso = contarPorCampo(blocosHub, 'processo', SEM_PROCESSO);
+  const pesoHub = somaPeso(blocosHub);
+  detalhe.innerHTML = `
+    <div class="panel">
+      <button class="backbtn" id="back-hub">← voltar aos parques</button>
+      <p style="font-size:14px;font-weight:600;margin:0 0 4px;">${logHubDetalhe} · ${blocosHub.length} bloco(s)</p>
+      <p style="font-size:13px;color:var(--slate);font-family:var(--mono);font-weight:600;margin:0 0 8px;">${formatarTonTotal(pesoHub)} em parque</p>
+      <p class="section-title">Quantidade e tonelagem por processo</p>
+      <div style="margin-bottom:12px;" id="hub-f-processo"></div>
+      <p class="section-title">Quantidade e tonelagem por cliente</p>
+      <div style="margin-bottom:12px;" id="hub-f-cliente"></div>
+      <p class="section-title">Blocos${logHubFiltroProcesso||logHubFiltroCliente?' (filtrado)':''}</p>
+      <div id="hub-blocos"></div>
+    </div>
+  `;
+  detalhe.querySelector('#back-hub').onclick = ()=>{ logHubDetalhe=null; render(); };
+  function contarPorCampo(lista, campo, semLabel){
+    const map = new Map();
+    lista.forEach(b=>{
+      const v = (campo==='clienteDerivado' ? clienteDeBloco(b) : b[campo]) || semLabel;
+      const cur = map.get(v) || { n:0, peso:0 };
+      cur.n += 1; cur.peso += pesoDeBloco(b);
+      map.set(v, cur);
+    });
+    return [...map.entries()].sort((a,b)=> b[1].n - a[1].n);
+  }
+  function breakdownList(wrapId, entries, totalCount, totalPeso, actual, onPick){
+    const wrap = detalhe.querySelector(wrapId);
+    if(!wrap) return;
+    const allRow = document.createElement('div');
+    allRow.className = 'row'; allRow.style.cursor = 'pointer';
+    if(!actual) allRow.style.border = '1.5px solid var(--slate)';
+    allRow.innerHTML = `<span class="num" style="font-family:var(--sans);font-weight:600;">Todos</span><span class="meta">${totalCount} bloco(s) · ${formatarTonTotal(totalPeso)}</span>`;
+    allRow.onclick = ()=> onPick(null);
+    wrap.appendChild(allRow);
+    entries.forEach(([label,v])=>{
+      const row = document.createElement('div');
+      row.className = 'row'; row.style.cursor = 'pointer';
+      if(actual===label) row.style.border = '1.5px solid var(--slate)';
+      row.innerHTML = `<span class="num" style="font-family:var(--sans);font-weight:600;">${label}</span><span class="meta">${v.n} bloco(s) · ${formatarTonTotal(v.peso)}</span>`;
+      row.onclick = ()=> onPick(label);
+      wrap.appendChild(row);
+    });
+  }
+  breakdownList('#hub-f-processo', porProcesso, blocosHub.length, pesoHub, logHubFiltroProcesso, (v)=>{ logHubFiltroProcesso=v; render(); });
+  breakdownList('#hub-f-cliente', porCliente, blocosHub.length, pesoHub, logHubFiltroCliente, (v)=>{ logHubFiltroCliente=v; render(); });
+  if(logHubFiltroProcesso) blocosHub = blocosHub.filter(b=> logHubFiltroProcesso===SEM_PROCESSO ? !b.processo : b.processo===logHubFiltroProcesso);
+  if(logHubFiltroCliente) blocosHub = blocosHub.filter(b=>{ const c=clienteDeBloco(b)||'Sem cliente'; return logHubFiltroCliente==='Sem cliente' ? !clienteDeBloco(b) : c===logHubFiltroCliente; });
+  const lw = detalhe.querySelector('#hub-blocos');
+  if(blocosHub.length===0) lw.innerHTML = '<p style="font-size:12.5px;color:var(--ink-mute);">Sem blocos com este filtro.</p>';
+  else blocosHub.forEach(b=>{
+    const c = clienteDeBloco(b);
+    const row = document.createElement('div');
+    row.className = 'row';
+    const proc = b.processo ? b.processo : '⚠ sem processo';
+    const peso = b.pesoKg ? ` · ${formatarTon(b.pesoKg)}` : '';
+    row.innerHTML = `<span class="num">Bloco ${b.numero}${c?(' · '+c):''}${peso}</span><span class="meta">${proc}</span>`;
+    lw.appendChild(row);
+  });
+}
+
 function render(){
   renderRoles();
   $view.innerHTML = '';
